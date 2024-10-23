@@ -8,13 +8,14 @@ import { StaticFileModule } from './common/config/static/static.module';
 import { QueueModule } from './common/config/queue/queue.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppMailerModule } from './common/config/mailer/mailer.module';
+import { PingModule } from './modules/ping/ping.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       envFilePath: ['.env', '.env.local'],
       isGlobal: true,
-      cache: true,
+      cache: false,
       expandVariables: true,
     }),
     DiscordBotModule,
@@ -24,6 +25,7 @@ import { AppMailerModule } from './common/config/mailer/mailer.module';
     QueueModule,
     ScheduleModule.forRoot(),
     AppMailerModule,
+    PingModule,
   ],
   providers: [AppService],
 })

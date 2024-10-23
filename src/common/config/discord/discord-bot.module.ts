@@ -12,8 +12,11 @@ import { IntentsBitField, ActivityType, Options } from 'discord.js';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         token: configService.getOrThrow('DISCORD_TOKEN'),
-        development: [configService.getOrThrow('DISCORD_DEVELOPMENT_GUILD_ID')],
-        skipRegistration: configService.get('NODE_ENV') === 'development',
+        prefix: configService.getOrThrow('DISCORD_PREFIX'),
+        development: configService.get('NODE_ENV') === 'development' 
+          ? [configService.getOrThrow('DISCORD_DEVELOPMENT_GUILD_ID')]
+          : false,
+        skipRegistration: false,
         
         // Discord Intents
         intents: [
