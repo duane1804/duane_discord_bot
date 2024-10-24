@@ -22,7 +22,7 @@ import { Logger } from '@nestjs/common';
 export class KissService {
   private readonly imageFolder: string;
   private readonly allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif'];
-  private readonly maxPreviewsPerPage = 1;
+  private readonly maxPreviewsPerPage = 5;
   private readonly logger = new Logger(KissService.name);
   constructor() {
     this.imageFolder = path.join(process.cwd(), 'uploads', 'kiss-images');
@@ -32,7 +32,7 @@ export class KissService {
   private async initializeImageFolder() {
     try {
       await fs.mkdir(this.imageFolder, { recursive: true });
-      this.logger.log('Images will be stored in:', this.imageFolder);
+      this.logger.warn('Images will be stored in:' + this.imageFolder);
     } catch (error) {
       this.logger.error('Error creating image folder:', error);
     }
@@ -101,7 +101,7 @@ export class KissService {
         const filePath = path.join(this.imageFolder, file);
         fileBuffers[file] = await fs.readFile(filePath);
       } catch (error) {
-        console.error(`Error reading file ${file}:`, error);
+        this.logger.error(`Error reading file ${file}:`, error);
       }
     }
 
@@ -236,7 +236,7 @@ private async handleButtonInteraction(
         });
       }
     } catch (error) {
-      console.error('Error handling image removal:', error);
+      this.logger.error('Error handling image removal:', error);
       await interaction.reply({
         content: '❌ Error processing the image removal.',
         ephemeral: true,
@@ -248,7 +248,7 @@ private async handleButtonInteraction(
     try {
       return await fs.readdir(this.imageFolder);
     } catch (error) {
-      console.error('Error listing images:', error);
+      this.logger.error('Error listing images:', error);
       return [];
     }
   }
@@ -259,7 +259,7 @@ private async handleButtonInteraction(
       await fs.unlink(filePath);
       return true;
     } catch (error) {
-      console.error('Error removing image:', error);
+      this.logger.error('Error removing image:', error);
       return false;
     }
   }
@@ -277,7 +277,7 @@ private async handleButtonInteraction(
 
       return removedCount;
     } catch (error) {
-      console.error('Error removing all images:', error);
+      this.logger.error('Error removing all images:', error);
       return 0;
     }
   }
@@ -306,7 +306,7 @@ private async handleButtonInteraction(
         buffer: Buffer.from(response.data),
       };
     } catch (error) {
-      console.error('Error saving uploaded image:', error);
+      this.logger.error('Error saving uploaded image:', error);
       return null;
     }
   }
@@ -319,7 +319,7 @@ private async handleButtonInteraction(
       const randomFile = files[Math.floor(Math.random() * files.length)];
       return path.join(this.imageFolder, randomFile);
     } catch (error) {
-      console.error('Error getting random image:', error);
+      this.logger.error('Error getting random image:', error);
       return null;
     }
   }
@@ -478,7 +478,7 @@ private async handleButtonInteraction(
           ],
         });
       } catch (error) {
-        console.error('Error sending image:', error);
+        this.logger.error('Error sending image:', error);
         return interaction.reply({
           content: '❌ Error sending the image. Please try again.',
           ephemeral: true,
