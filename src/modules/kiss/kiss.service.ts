@@ -1,23 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Context, Options, SlashCommand, SlashCommandContext } from 'necord';
 import { KissDto } from './dto/kiss.dto';
 import {
-  EmbedBuilder,
-  Attachment,
-  PermissionsBitField,
   ActionRowBuilder,
+  Attachment,
+  ButtonBuilder,
+  ButtonInteraction,
+  ButtonStyle,
+  ComponentType,
+  EmbedBuilder,
+  Interaction,
+  PermissionsBitField,
   StringSelectMenuBuilder,
   StringSelectMenuInteraction,
-  ComponentType,
-  ButtonBuilder,
-  ButtonStyle,
-  ButtonInteraction,
-  Interaction,
 } from 'discord.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import axios from 'axios';
-import { Logger } from '@nestjs/common';
+
 @Injectable()
 export class KissService {
   private readonly imageFolder: string;
@@ -26,7 +26,7 @@ export class KissService {
   private readonly logger = new Logger(KissService.name);
   constructor() {
     this.imageFolder = path.join(process.cwd(), 'uploads', 'kiss-images');
-    this.initializeImageFolder();
+    this.initializeImageFolder().then((r) => r);
   }
 
   private async initializeImageFolder() {
@@ -146,51 +146,54 @@ export class KissService {
   private async updatePreviewMessage(
     interaction: ButtonInteraction,
     files: string[],
-    currentPage: number
-) {
-    const { embed, menu, navigation, fileBuffers } = await this.createImagePreviewEmbed(files, currentPage);
+    currentPage: number,
+  ) {
+    const { embed, menu, navigation, fileBuffers } =
+      await this.createImagePreviewEmbed(files, currentPage);
 
     const previewEmbed = new EmbedBuilder()
-        .setColor('#FF69B4')
-        .setTitle('📸 Image Previews')
-        .setDescription('Here are the available images:');
+      .setColor('#FF69B4')
+      .setTitle('📸 Image Previews')
+      .setDescription('Here are the available images:');
 
     await interaction.update({
-        embeds: [previewEmbed, embed],
-        components: [menu, navigation],
-        files: Object.entries(fileBuffers).map(([filename, buffer]) => ({
-            attachment: buffer,
-            name: filename
-        }))
+      embeds: [previewEmbed, embed],
+      components: [menu, navigation],
+      files: Object.entries(fileBuffers).map(([filename, buffer]) => ({
+        attachment: buffer,
+        name: filename,
+      })),
     });
-}
-
-private async handleButtonInteraction(
-  interaction: ButtonInteraction,
-  files: string[],
-  currentPage: number
-): Promise<number> {
-  let newPage = currentPage;
-
-  switch (interaction.customId) {
-      case 'first_page':
-          newPage = 0;
-          break;
-      case 'prev_page':
-          newPage = Math.max(0, currentPage - 1);
-          break;
-      case 'next_page':
-          newPage = Math.min(Math.ceil(files.length / this.maxPreviewsPerPage) - 1, currentPage + 1);
-          break;
-      case 'last_page':
-          newPage = Math.ceil(files.length / this.maxPreviewsPerPage) - 1;
-          break;
   }
 
-  await this.updatePreviewMessage(interaction, files, newPage);
-  return newPage;
-}
+  private async handleButtonInteraction(
+    interaction: ButtonInteraction,
+    files: string[],
+    currentPage: number,
+  ): Promise<number> {
+    let newPage = currentPage;
 
+    switch (interaction.customId) {
+      case 'first_page':
+        newPage = 0;
+        break;
+      case 'prev_page':
+        newPage = Math.max(0, currentPage - 1);
+        break;
+      case 'next_page':
+        newPage = Math.min(
+          Math.ceil(files.length / this.maxPreviewsPerPage) - 1,
+          currentPage + 1,
+        );
+        break;
+      case 'last_page':
+        newPage = Math.ceil(files.length / this.maxPreviewsPerPage) - 1;
+        break;
+    }
+
+    await this.updatePreviewMessage(interaction, files, newPage);
+    return newPage;
+  }
 
   private async handleImageRemoval(
     interaction: StringSelectMenuInteraction,
@@ -375,77 +378,82 @@ private async handleButtonInteraction(
     // Handle image removal (admin only)
     if (remove) {
       if (!this.isAdmin(interaction)) {
-          return interaction.reply({
-              content: '❌ Only administrators can remove kiss images.',
-              ephemeral: true
-          });
+        return interaction.reply({
+          content: '❌ Only administrators can remove kiss images.',
+          ephemeral: true,
+        });
       }
 
       if (remove === 'all') {
-          const count = await this.removeAllImages();
-          return interaction.reply({
-              content: `✅ Successfully removed ${count} kiss images.`,
-              ephemeral: true
-          });
+        const count = await this.removeAllImages();
+        return interaction.reply({
+          content: `✅ Successfully removed ${count} kiss images.`,
+          ephemeral: true,
+        });
       } else if (remove === 'list') {
-          const files = await this.listImages();
-          if (files.length === 0) {
-              return interaction.reply({
-                  content: '❌ No images found to remove.',
-                  ephemeral: true
-              });
+        const files = await this.listImages();
+        if (files.length === 0) {
+          return interaction.reply({
+            content: '❌ No images found to remove.',
+            ephemeral: true,
+          });
+        }
+
+        let currentPage = 0;
+        const { embed, menu, navigation, fileBuffers } =
+          await this.createImagePreviewEmbed(files, currentPage);
+
+        const previewEmbed = new EmbedBuilder()
+          .setColor('#FF69B4')
+          .setTitle('📸 Image Previews')
+          .setDescription('Here are the available images:');
+
+        const response = await interaction.reply({
+          embeds: [previewEmbed, embed],
+          components: [menu, navigation],
+          files: Object.entries(fileBuffers).map(([filename, buffer]) => ({
+            attachment: buffer,
+            name: filename,
+          })),
+          ephemeral: true,
+        });
+
+        // Create collector for both buttons and select menu
+        const collector = response.createMessageComponentCollector({
+          time: 60000, // 1 minute timeout
+        });
+
+        collector.on('collect', async (i: Interaction) => {
+          // Handle select menu interaction
+          if (i.isStringSelectMenu()) {
+            await this.handleImageRemoval(i, fileBuffers);
+            collector.stop();
+            return;
           }
 
-          let currentPage = 0;
-          const { embed, menu, navigation, fileBuffers } = await this.createImagePreviewEmbed(files, currentPage);
+          // Handle button interaction
+          if (i.isButton()) {
+            currentPage = await this.handleButtonInteraction(
+              i,
+              files,
+              currentPage,
+            );
+          }
+        });
 
-          const previewEmbed = new EmbedBuilder()
-              .setColor('#FF69B4')
-              .setTitle('📸 Image Previews')
-              .setDescription('Here are the available images:');
+        collector.on('end', async (collected, reason) => {
+          if (reason === 'time') {
+            await interaction.editReply({
+              content: '❌ Image selection timed out.',
+              components: [],
+              embeds: [],
+            });
+          }
+        });
 
-          const response = await interaction.reply({
-              embeds: [previewEmbed, embed],
-              components: [menu, navigation],
-              files: Object.entries(fileBuffers).map(([filename, buffer]) => ({
-                  attachment: buffer,
-                  name: filename
-              })),
-              ephemeral: true
-          });
-
-          // Create collector for both buttons and select menu
-          const collector = response.createMessageComponentCollector({
-              time: 60000 // 1 minute timeout
-          });
-
-          collector.on('collect', async (i: Interaction) => {
-              // Handle select menu interaction
-              if (i.isStringSelectMenu()) {
-                  await this.handleImageRemoval(i, fileBuffers);
-                  collector.stop();
-                  return;
-              }
-              
-              // Handle button interaction
-              if (i.isButton()) {
-                  currentPage = await this.handleButtonInteraction(i, files, currentPage);
-              }
-          });
-
-          collector.on('end', async (collected, reason) => {
-              if (reason === 'time') {
-                  await interaction.editReply({
-                      content: '❌ Image selection timed out.',
-                      components: [],
-                      embeds: []
-                  });
-              }
-          });
-
-          return;
+        return;
       }
-  }
+    }
 
     // Send message with random saved image
     if (kissing) {
@@ -464,7 +472,9 @@ private async handleButtonInteraction(
 
         const kissEmbed = new EmbedBuilder()
           .setColor('#FF69B4')
-          .setDescription(`${interaction.user} 💋 ${kissing} ${user ? user : ''}`)
+          .setDescription(
+            `${interaction.user} 💋 ${kissing} ${user ? user : ''}`,
+          )
           .setImage(`attachment://kiss${fileExtension}`)
           .setTimestamp();
 

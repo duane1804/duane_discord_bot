@@ -10,6 +10,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppMailerModule } from './common/config/mailer/mailer.module';
 import { PingModule } from './modules/ping/ping.module';
 import { KissModule } from './modules/kiss/kiss.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
