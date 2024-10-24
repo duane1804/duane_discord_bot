@@ -9,7 +9,7 @@ import { QueueModule } from './common/config/queue/queue.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppMailerModule } from './common/config/mailer/mailer.module';
 import { PingModule } from './modules/ping/ping.module';
-
+import { KissModule } from './modules/kiss/kiss.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -26,6 +26,7 @@ import { PingModule } from './modules/ping/ping.module';
     ScheduleModule.forRoot(),
     AppMailerModule,
     PingModule,
+    KissModule,
   ],
   providers: [AppService],
 })
