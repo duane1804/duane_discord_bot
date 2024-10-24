@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Context, ContextOf, Once, On, SlashCommand, SlashCommandContext, Options } from 'necord';
 import { Client } from 'discord.js';
-import { LengthDto } from './modules/dto/ping.dto';
+import { LengthDto } from './modules/ping/dto/ping.dto';
 
 @Injectable()
 export class AppService {

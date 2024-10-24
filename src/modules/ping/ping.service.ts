@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Arguments, Context, Options, SlashCommand, SlashCommandContext, TextCommand, TextCommandContext } from 'necord';
-import { LengthDto } from '../dto/ping.dto';
+import { LengthDto } from './dto/ping.dto';
 @Injectable()
 export class PingService {
   @SlashCommand({
