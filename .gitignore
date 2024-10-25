@@ -60,3 +60,4 @@ uploads/*
 
 #data
 data/pgdata
+.devcontainer/pgdata
