@@ -20,21 +20,32 @@ import axios from 'axios';
 
 @Injectable()
 export class KissService {
-  private readonly imageFolder: string;
+  private readonly baseImageFolder: string;
   private readonly allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif'];
   private readonly maxPreviewsPerPage = 5;
   private readonly logger = new Logger(KissService.name);
   constructor() {
-    this.imageFolder = path.join(process.cwd(), 'uploads', 'kiss-images');
-    this.initializeImageFolder().then((r) => r);
+    this.baseImageFolder = path.join(process.cwd(), 'uploads', 'kiss-images');
+    this.initializeBaseFolder();
   }
 
-  private async initializeImageFolder() {
+  private async initializeBaseFolder() {
     try {
-      await fs.mkdir(this.imageFolder, { recursive: true });
-      this.logger.warn('Images will be stored in:' + this.imageFolder);
+      await fs.mkdir(this.baseImageFolder, { recursive: true });
+      this.logger.warn('Base image folder created at:', this.baseImageFolder);
     } catch (error) {
-      this.logger.error('Error creating image folder:', error);
+      this.logger.error('Error creating base folder:', error);
+    }
+  }
+
+  private async getServerFolder(serverId: string): Promise<string> {
+    const serverFolder = path.join(this.baseImageFolder, serverId);
+    try {
+      await fs.mkdir(serverFolder, { recursive: true });
+      return serverFolder;
+    } catch (error) {
+      this.logger.error(`Error creating server folder for ${serverId}:`, error);
+      throw error;
     }
   }
 
@@ -82,6 +93,7 @@ export class KissService {
   }
 
   private async createImagePreviewEmbed(
+    serverId: string,
     files: string[],
     page = 0,
   ): Promise<{
@@ -93,12 +105,13 @@ export class KissService {
     const startIdx = page * this.maxPreviewsPerPage;
     const pageFiles = files.slice(startIdx, startIdx + this.maxPreviewsPerPage);
     const fileBuffers: { [key: string]: Buffer } = {};
+    const serverFolder = await this.getServerFolder(serverId);
     const totalPages = Math.ceil(files.length / this.maxPreviewsPerPage);
 
     // Read all image files for the current page
     for (const file of pageFiles) {
       try {
-        const filePath = path.join(this.imageFolder, file);
+        const filePath = path.join(serverFolder, file);
         fileBuffers[file] = await fs.readFile(filePath);
       } catch (error) {
         this.logger.error(`Error reading file ${file}:`, error);
@@ -148,8 +161,17 @@ export class KissService {
     files: string[],
     currentPage: number,
   ) {
+    // Get the server ID from the interaction
+    if (!interaction.guildId) {
+      throw new Error('This command can only be used in a server.');
+    }
+
     const { embed, menu, navigation, fileBuffers } =
-      await this.createImagePreviewEmbed(files, currentPage);
+      await this.createImagePreviewEmbed(
+        interaction.guildId,
+        files,
+        currentPage,
+      );
 
     const previewEmbed = new EmbedBuilder()
       .setColor('#FF69B4')
@@ -209,7 +231,7 @@ export class KissService {
       }
 
       // Remove the image
-      const success = await this.removeImage(selectedFile);
+      const success = await this.removeImage(interaction.guildId, selectedFile);
 
       if (success) {
         const removedEmbed = new EmbedBuilder()
@@ -247,18 +269,23 @@ export class KissService {
     }
   }
 
-  private async listImages(): Promise<string[]> {
+  private async listImages(serverId: string): Promise<string[]> {
     try {
-      return await fs.readdir(this.imageFolder);
+      const serverFolder = await this.getServerFolder(serverId);
+      return await fs.readdir(serverFolder);
     } catch (error) {
       this.logger.error('Error listing images:', error);
       return [];
     }
   }
 
-  private async removeImage(filename: string): Promise<boolean> {
+  private async removeImage(
+    serverId: string,
+    filename: string,
+  ): Promise<boolean> {
     try {
-      const filePath = path.join(this.imageFolder, filename);
+      const serverFolder = await this.getServerFolder(serverId);
+      const filePath = path.join(serverFolder, filename);
       await fs.unlink(filePath);
       return true;
     } catch (error) {
@@ -267,13 +294,13 @@ export class KissService {
     }
   }
 
-  private async removeAllImages(): Promise<number> {
+  private async removeAllImages(serverId: string): Promise<number> {
     try {
-      const files = await this.listImages();
+      const files = await this.listImages(serverId);
       let removedCount = 0;
 
       for (const file of files) {
-        if (await this.removeImage(file)) {
+        if (await this.removeImage(serverId, file)) {
           removedCount++;
         }
       }
@@ -286,6 +313,7 @@ export class KissService {
   }
 
   private async saveUploadedImage(
+    serverId: string,
     attachment: Attachment,
   ): Promise<{ fileName: string; buffer: Buffer } | null> {
     try {
@@ -301,7 +329,8 @@ export class KissService {
         responseType: 'arraybuffer',
       });
       const fileName = `kiss_${Date.now() + Math.random()}${fileExtension}`;
-      const filePath = path.join(this.imageFolder, fileName);
+      const serverFolder = await this.getServerFolder(serverId);
+      const filePath = path.join(serverFolder, fileName);
 
       await fs.writeFile(filePath, response.data);
       return {
@@ -314,13 +343,14 @@ export class KissService {
     }
   }
 
-  private async getRandomImage(): Promise<string | null> {
+  private async getRandomImage(serverId: string): Promise<string | null> {
     try {
-      const files = await fs.readdir(this.imageFolder);
+      const serverFolder = await this.getServerFolder(serverId);
+      const files = await fs.readdir(serverFolder);
       if (files.length === 0) return null;
 
       const randomFile = files[Math.floor(Math.random() * files.length)];
-      return path.join(this.imageFolder, randomFile);
+      return path.join(serverFolder, randomFile);
     } catch (error) {
       this.logger.error('Error getting random image:', error);
       return null;
@@ -335,7 +365,15 @@ export class KissService {
     @Context() [interaction]: SlashCommandContext,
     @Options() { user, kissing, addimage, remove }: KissDto,
   ) {
-    // Handle image upload (admin only)
+    // Ensure we have a guild ID
+    if (!interaction.guildId) {
+      return interaction.reply({
+        content: '❌ This command can only be used in a server.',
+        ephemeral: true,
+      });
+    }
+
+    // Handle image upload
     if (addimage) {
       if (!this.isAdmin(interaction)) {
         return interaction.reply({
@@ -344,16 +382,17 @@ export class KissService {
         });
       }
 
-      const savedImage = await this.saveUploadedImage(addimage);
+      const savedImage = await this.saveUploadedImage(
+        interaction.guildId,
+        addimage,
+      );
       if (savedImage) {
         const previewEmbed = new EmbedBuilder()
           .setColor('#FF69B4')
           .setTitle('✅ Kiss Image Added Successfully')
           .setDescription(`Filename: \`${savedImage.fileName}\``)
           .setImage(`attachment://${savedImage.fileName}`)
-          .setFooter({
-            text: 'This image is now available for the kiss command',
-          })
+          .setFooter({ text: `Server ID: ${interaction.guildId}` })
           .setTimestamp();
 
         return interaction.reply({
@@ -368,8 +407,7 @@ export class KissService {
         });
       } else {
         return interaction.reply({
-          content:
-            "❌ Failed to save the image. Please make sure it's a valid image file (jpg, jpeg, png, or gif).",
+          content: '❌ Failed to save the image.',
           ephemeral: true,
         });
       }
@@ -385,13 +423,13 @@ export class KissService {
       }
 
       if (remove === 'all') {
-        const count = await this.removeAllImages();
+        const count = await this.removeAllImages(interaction.guildId);
         return interaction.reply({
-          content: `✅ Successfully removed ${count} kiss images.`,
+          content: `✅ Successfully removed ${count} kiss images from this server.`,
           ephemeral: true,
         });
       } else if (remove === 'list') {
-        const files = await this.listImages();
+        const files = await this.listImages(interaction.guildId);
         if (files.length === 0) {
           return interaction.reply({
             content: '❌ No images found to remove.',
@@ -401,7 +439,11 @@ export class KissService {
 
         let currentPage = 0;
         const { embed, menu, navigation, fileBuffers } =
-          await this.createImagePreviewEmbed(files, currentPage);
+          await this.createImagePreviewEmbed(
+            interaction.guildId,
+            files,
+            currentPage,
+          );
 
         const previewEmbed = new EmbedBuilder()
           .setColor('#FF69B4')
@@ -457,11 +499,11 @@ export class KissService {
 
     // Send message with random saved image
     if (kissing) {
-      const imagePath = await this.getRandomImage();
+      const imagePath = await this.getRandomImage(interaction.guildId);
       if (!imagePath) {
         return interaction.reply({
           content:
-            '❌ No kiss images found. Please ask an administrator to add some images first.',
+            '❌ No kiss images found in this server. Please ask an administrator to add some images.',
           ephemeral: true,
         });
       }

@@ -19,7 +19,7 @@ import { join } from 'path';
         database: configService.get<string>('DB_DATABASE'),
         entities: [join(__dirname, '..', '..', '**', '*.entity.{ts,js}')],
         migrations: [join(__dirname, '..', '..', 'migrations', '*{.ts,.js}')],
-        synchronize: false,
+        synchronize: true,
         autoLoadEntities: true,
       }),
       inject: [ConfigService],
