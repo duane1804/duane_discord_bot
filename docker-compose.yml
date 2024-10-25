@@ -14,7 +14,7 @@ services:
       - db
 
     ports:
-      - 3000:3000
+      - 3400:3400
 
     networks:
       - inetwork
