@@ -1,15 +1,21 @@
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
-@Entity({ name: 'foot_category' })
+@Entity({ name: 'food_category' })
 export class FoodCategory extends BaseEntity {
   constructor(partial?: Partial<FoodCategory>) {
     super();
     Object.assign(this, partial);
   }
 
-  @Column({ nullable: false, type: 'varchar' })
+  @Column({ nullable: false, type: 'varchar', unique: true }) // Added unique constraint
   name: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  description: string;
+
+  @OneToMany(() => Food, (food) => food.category)
+  foods: Food[];
 }
 
 @Entity({ name: 'food' })
@@ -25,7 +31,12 @@ export class Food extends BaseEntity {
   @Column({ nullable: true, type: 'varchar' })
   image: string;
 
-  @ManyToOne(() => FoodCategory, { onDelete: 'CASCADE' })
+  @Column({ name: 'category_id' })
+  categoryId: string;
+
+  @ManyToOne(() => FoodCategory, (category) => category.foods, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'category_id' })
   category: FoodCategory;
 }

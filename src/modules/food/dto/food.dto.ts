@@ -16,16 +16,16 @@ export class OptionDto {
   })
   option: string;
 
-  @StringOption({
-    name: 'category_option',
-    description: 'Category management options',
-    required: false,
-    choices: [
-      { name: 'List categories', value: 'list' },
-      { name: 'Add category', value: 'add' },
-      { name: 'Edit category', value: 'edit' },
-      { name: 'Delete category', value: 'delete' },
-    ],
-  })
-  categoryOption?: string;
+  // @StringOption({
+  //   name: 'category_option',
+  //   description: 'Category management options',
+  //   required: false,
+  //   choices: [
+  //     { name: 'List categories', value: 'list' },
+  //     { name: 'Add category', value: 'add' },
+  //     { name: 'Edit category', value: 'edit' },
+  //     { name: 'Delete category', value: 'delete' },
+  //   ],
+  // })
+  // categoryOption?: string;
 }
