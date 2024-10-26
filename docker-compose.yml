@@ -8,8 +8,8 @@ services:
       - ./:/app/
       - /app/node_modules
       
-    depends_on:
-      - db
+#    depends_on:
+#      - db
 
     ports:
       - 3400:3400
@@ -19,28 +19,28 @@ services:
     # Use "forwardPorts" in **devcontainer.json** to forward an app port locally.
     # (Adding the "ports" property to this file will not forward from a Codespace.)
 
-  db:
-    image: postgres:latest
-    restart: always
-    volumes:
-      - ./data/pgdata:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: "123456"
-      POSTGRES_USER: "duane_discord_bot"
-      POSTGRES_DB: "duane_discord_bot"
-
-    ports:
-      - 5432:5432
-
-    expose:
-      - "5432"
-
-    networks:
-      - inetwork
-
-
-volumes:
-  postgres-data:
+#  db:
+#    image: postgres:latest
+#    restart: always
+#    volumes:
+#      - ./data/pgdata:/var/lib/postgresql/data
+#    environment:
+#      POSTGRES_PASSWORD: "123456"
+#      POSTGRES_USER: "duane_discord_bot"
+#      POSTGRES_DB: "duane_discord_bot"
+#
+#    ports:
+#      - 5432:5432
+#
+#    expose:
+#      - "5432"
+#
+#    networks:
+#      - inetwork
+#
+#
+#volumes:
+#  postgres-data:
 
 networks:
   inetwork:

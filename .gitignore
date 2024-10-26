@@ -61,3 +61,6 @@ uploads/*
 #data
 data/pgdata
 .devcontainer/pgdata
+
+yarn.lock
+package-lock.json
