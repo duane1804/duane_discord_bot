@@ -763,7 +763,7 @@ export class FoodService {
 
       const collector = (reply as Message).createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
-        time: 3_600_000, // 1 hour
+        time: 600000, // 10 minutes
       });
 
       collector.on('collect', async (i: StringSelectMenuInteraction) => {
@@ -790,7 +790,7 @@ export class FoodService {
           case 'list':
             let listCurrentPage = 1;
             const [listInitialEmbed, listInitialCurrentPage, listTotalPages] =
-              await this.foodService.createCategoryListEmbed(
+              await this.foodService.createFoodListEmbed(
                 listCurrentPage,
                 false,
                 i.guildId,
@@ -801,7 +801,7 @@ export class FoodService {
 
             if (listTotalPages > 1) {
               listComponents.push(
-                this.foodCategoryService.createPaginationButtons(
+                this.foodService.createPaginationButtons(
                   listInitialCurrentPage,
                   listTotalPages,
                 ),
@@ -835,7 +835,7 @@ export class FoodService {
               // Handle close button
               if (interaction.customId === 'close_view') {
                 await interaction.update({
-                  content: 'Category list view closed.',
+                  content: 'Food list view closed.',
                   embeds: [],
                   components: [],
                 });
@@ -854,7 +854,7 @@ export class FoodService {
                 }
 
                 const [newEmbed, newCurrentPage, newTotalPages] =
-                  await this.foodCategoryService.createCategoryListEmbed(
+                  await this.foodService.createFoodListEmbed(
                     listCurrentPage,
                     false,
                     interaction.guildId,
@@ -865,7 +865,7 @@ export class FoodService {
 
                 if (newTotalPages > 1) {
                   updatedComponents.push(
-                    this.foodCategoryService.createPaginationButtons(
+                    this.foodService.createPaginationButtons(
                       newCurrentPage,
                       newTotalPages,
                     ),
@@ -890,18 +890,27 @@ export class FoodService {
 
             listCollector.on('end', (collected, reason) => {
               if (reason === 'time' && listMessage) {
-                listMessage
-                  .edit({
-                    content: 'Category list view timed out.',
-                    components: [
-                      this.foodCategoryService.createTimeoutButton(),
-                    ],
-                  })
-                  .catch(() => {});
+                i.editReply({
+                  content: 'Food list view timed out.',
+                  embeds: [],
+                  components: [],
+                }).catch(() => {}); // Ignore errors if message was deleted
               }
             });
             break;
+          case 'add':
+            if (!this.isAdmin(interaction)) {
+              await i.update({
+                content: '❌ Only administrators can add foods.',
+                components: [this.foodService.createFoodMainMenu()],
+                embeds: [],
+              });
+              return;
+            }
 
+            // Start the add food flow
+            await this.foodService.createAddFoodMessage(i);
+            break;
           default:
             await i.update({
               content: '❗️Invalid selection!',
