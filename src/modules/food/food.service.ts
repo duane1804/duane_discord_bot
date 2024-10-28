@@ -57,7 +57,7 @@ export class FoodService {
 
       const collector = (reply as Message).createMessageComponentCollector({
         componentType: ComponentType.StringSelect,
-        time: 3_600_000, // 1 hour
+        time: 600000, // 10 minutes
       });
 
       collector.on('collect', async (i: StringSelectMenuInteraction) => {
@@ -182,13 +182,27 @@ export class FoodService {
               }
             });
 
-            listCollector.on('end', (collected, reason) => {
+            listCollector.on('end', async (collected, reason) => {
               if (reason === 'time' && listMessage) {
-                i.editReply({
-                  content: 'Category list view timed out.',
-                  embeds: [],
-                  components: [],
-                }).catch(() => {}); // Ignore errors if message was deleted
+                // Create a disabled "View Timed Out" button
+                const timeoutAlertComponents = [
+                  new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                      .setCustomId('view_timed_out')
+                      .setLabel('View Timed Out')
+                      .setStyle(ButtonStyle.Danger)
+                      .setDisabled(true),
+                  ),
+                ];
+
+                await i
+                  .editReply({
+                    content:
+                      'The category list view has timed out. Please reopen to continue.',
+                    embeds: [],
+                    components: timeoutAlertComponents,
+                  })
+                  .catch(() => {}); // Ignore errors if message was deleted
               }
             });
             break;
@@ -718,12 +732,21 @@ export class FoodService {
       });
 
       collector.on('end', async (collected, reason) => {
+        // if (reason === 'time') {
+        //   await interaction.editReply({
+        //     content: 'Menu timed out. Please run the command again.',
+        //     components: [],
+        //     embeds: [],
+        //   });
+        // }
         if (reason === 'time') {
-          await interaction.editReply({
-            content: 'Menu timed out. Please run the command again.',
-            components: [],
-            embeds: [],
-          });
+          interaction
+            .editReply({
+              content: 'Menu timed out. Please run the command again.',
+              components: [this.foodCategoryService.createTimeoutButton()],
+              embeds: [],
+            })
+            .catch(() => {});
         }
       });
 
@@ -867,11 +890,14 @@ export class FoodService {
 
             listCollector.on('end', (collected, reason) => {
               if (reason === 'time' && listMessage) {
-                i.editReply({
-                  content: 'Category list view timed out.',
-                  embeds: [],
-                  components: [],
-                }).catch(() => {}); // Ignore errors if message was deleted
+                listMessage
+                  .edit({
+                    content: 'Category list view timed out.',
+                    components: [
+                      this.foodCategoryService.createTimeoutButton(),
+                    ],
+                  })
+                  .catch(() => {});
               }
             });
             break;

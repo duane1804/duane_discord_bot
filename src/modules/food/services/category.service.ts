@@ -73,6 +73,16 @@ export class FoodCategoryService {
     );
   }
 
+  public createTimeoutButton(): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId('timed_out')
+        .setLabel('Timed Out')
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(true),
+    );
+  }
+
   createPaginationButtons(currentPage: number, totalPages: number) {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
