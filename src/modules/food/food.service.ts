@@ -14,6 +14,7 @@ import {
   StringSelectMenuInteraction,
 } from 'discord.js';
 import { FoodCategoryService } from './services/category.service';
+import { FoodsService } from './services/foods.services';
 
 @Injectable()
 export class FoodService {
@@ -24,6 +25,7 @@ export class FoodService {
     @InjectRepository(Food)
     private readonly foodRepository: Repository<Food>,
     private foodCategoryService: FoodCategoryService,
+    private foodService: FoodsService,
   ) {}
 
   private isAdmin(
@@ -711,6 +713,7 @@ export class FoodService {
               components: [this.foodCategoryService.createCategoryMainMenu()],
               embeds: [],
             });
+            break;
         }
       });
 
@@ -728,10 +731,172 @@ export class FoodService {
     }
 
     if (option === 'food') {
-      return interaction.reply({
-        content: 'Add food!',
+      const reply = await interaction.reply({
+        content: 'Please select a category option:',
+        components: [this.foodService.createFoodMainMenu()],
         ephemeral: true,
+        fetchReply: true,
       });
+
+      const collector = (reply as Message).createMessageComponentCollector({
+        componentType: ComponentType.StringSelect,
+        time: 3_600_000, // 1 hour
+      });
+
+      collector.on('collect', async (i: StringSelectMenuInteraction) => {
+        if (i.user.id !== interaction.user.id) {
+          await i.reply({
+            content: 'This menu is not for you!',
+            ephemeral: true,
+          });
+          return;
+        }
+
+        const selected = i.values[0];
+
+        if (selected === 'back') {
+          await i.update({
+            content: 'Please select a food option:',
+            components: [this.foodService.createFoodMainMenu()],
+            embeds: [],
+          });
+          return;
+        }
+
+        switch (selected) {
+          case 'list':
+            let listCurrentPage = 1;
+            const [listInitialEmbed, listInitialCurrentPage, listTotalPages] =
+              await this.foodService.createCategoryListEmbed(
+                listCurrentPage,
+                false,
+                i.guildId,
+              );
+
+            // Create components array with pagination and close button
+            const listComponents = [];
+
+            if (listTotalPages > 1) {
+              listComponents.push(
+                this.foodCategoryService.createPaginationButtons(
+                  listInitialCurrentPage,
+                  listTotalPages,
+                ),
+              );
+            }
+
+            listComponents.push(
+              new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                  .setCustomId('close_view')
+                  .setLabel('Close View')
+                  .setStyle(ButtonStyle.Secondary),
+              ),
+            );
+
+            // Create a new message for the list view
+            const listMessage = await i.reply({
+              content: null,
+              embeds: [listInitialEmbed],
+              components: listComponents,
+              ephemeral: true,
+              fetchReply: true,
+            });
+
+            const listCollector = listMessage.createMessageComponentCollector({
+              filter: (interaction) => interaction.user.id === i.user.id,
+              time: 300000, // 5 minutes
+            });
+
+            listCollector.on('collect', async (interaction) => {
+              // Handle close button
+              if (interaction.customId === 'close_view') {
+                await interaction.update({
+                  content: 'Category list view closed.',
+                  embeds: [],
+                  components: [],
+                });
+                listCollector.stop();
+                return;
+              }
+
+              // Handle pagination buttons
+              if (interaction.isButton()) {
+                if (interaction.customId === 'next_page') {
+                  listCurrentPage++;
+                } else if (interaction.customId === 'prev_page') {
+                  listCurrentPage--;
+                } else {
+                  return; // Not a pagination button
+                }
+
+                const [newEmbed, newCurrentPage, newTotalPages] =
+                  await this.foodCategoryService.createCategoryListEmbed(
+                    listCurrentPage,
+                    false,
+                    interaction.guildId,
+                  );
+
+                // Rebuild components array
+                const updatedComponents = [];
+
+                if (newTotalPages > 1) {
+                  updatedComponents.push(
+                    this.foodCategoryService.createPaginationButtons(
+                      newCurrentPage,
+                      newTotalPages,
+                    ),
+                  );
+                }
+
+                updatedComponents.push(
+                  new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                      .setCustomId('close_view')
+                      .setLabel('Close View')
+                      .setStyle(ButtonStyle.Secondary),
+                  ),
+                );
+
+                await interaction.update({
+                  embeds: [newEmbed],
+                  components: updatedComponents,
+                });
+              }
+            });
+
+            listCollector.on('end', (collected, reason) => {
+              if (reason === 'time' && listMessage) {
+                i.editReply({
+                  content: 'Category list view timed out.',
+                  embeds: [],
+                  components: [],
+                }).catch(() => {}); // Ignore errors if message was deleted
+              }
+            });
+            break;
+
+          default:
+            await i.update({
+              content: '❗️Invalid selection!',
+              components: [this.foodService.createFoodMainMenu()],
+              embeds: [],
+            });
+            break;
+        }
+      });
+
+      collector.on('end', async (collected, reason) => {
+        if (reason === 'time') {
+          await interaction.editReply({
+            content: 'Menu timed out. Please run the command again.',
+            components: [],
+            embeds: [],
+          });
+        }
+      });
+
+      return;
     }
 
     if (option === 'random') {

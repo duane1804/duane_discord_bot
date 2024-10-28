@@ -35,8 +35,14 @@ export class Food extends BaseEntity {
   @Column({ nullable: true, type: 'varchar' })
   image: string;
 
+  @Column({ nullable: true, type: 'varchar' })
+  description: string;
+
   @Column({ name: 'category_id' })
   categoryId: string;
+
+  @Column({ name: 'user_id', nullable: true, type: 'varchar' })
+  userId: string;
 
   // Make guild_id nullable initially
   @Column({ name: 'guild_id', nullable: true, type: 'varchar' })
