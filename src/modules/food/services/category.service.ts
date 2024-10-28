@@ -184,24 +184,41 @@ export class FoodCategoryService {
   // Edit Category
 
   createEditCategorySelect() {
-    return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('edit_category_select')
-        .setPlaceholder('Select category to edit'),
-    );
+    const selectMenu =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('edit_category_select')
+          .setPlaceholder('Select category to edit')
+          .addOptions([
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Cancel')
+              .setDescription('Cancel category editing')
+              .setValue('cancel'),
+          ]),
+      );
+
+    return selectMenu;
   }
 
-  async updateEditCategorySelect() {
-    const categories = await this.foodCategoryRepository.find();
+  async updateEditCategorySelect(page: number, totalPages: number) {
+    const categories = await this.foodCategoryRepository.find({
+      skip: (page - 1) * this.ITEMS_PER_PAGE,
+      take: this.ITEMS_PER_PAGE,
+      relations: ['foods'],
+    });
+
+    if (categories.length === 0) {
+      return null;
+    }
+
     const selectMenu = this.createEditCategorySelect();
 
-    // Add categories to select menu
     categories.forEach((category) => {
       (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
         new StringSelectMenuOptionBuilder()
           .setLabel(category.name)
           .setDescription(
-            category.description?.slice(0, 50) || 'No description',
+            `Foods: ${category.foods?.length || 0} | ${category.description?.slice(0, 50) || 'No description'}`,
           )
           .setValue(`edit_${category.id}`),
       );
@@ -295,27 +312,27 @@ export class FoodCategoryService {
     const categories = await this.foodCategoryRepository.find({
       skip: (page - 1) * this.ITEMS_PER_PAGE,
       take: this.ITEMS_PER_PAGE,
+      relations: ['foods'],
     });
 
     const selectMenu = this.createDeleteCategorySelect();
 
-    if (categories.length === 0) {
-      (selectMenu.components[0] as StringSelectMenuBuilder).setPlaceholder(
-        'No categories available for deletion',
-      );
-    } else {
+    // If there are categories, add them to the options
+    if (categories.length > 0) {
       categories.forEach((category) => {
         (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
           new StringSelectMenuOptionBuilder()
             .setLabel(category.name)
             .setDescription(
-              category.description?.slice(0, 50) || 'No description',
+              `Foods: ${category.foods?.length || 0} | ${category.description?.slice(0, 50) || 'No description'}`,
             )
             .setValue(`delete_${category.id}`),
         );
       });
+      return selectMenu;
     }
 
-    return selectMenu;
+    // If no categories, return null instead of a select menu
+    return null;
   }
 }

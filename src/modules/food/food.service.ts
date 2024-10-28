@@ -238,9 +238,14 @@ export class FoodService {
                 return;
               }
 
+              // Send public success message
+              await interaction.channel.send({
+                content: `✅ Category "${categoryName}" has been created successfully!`,
+              });
+
               // Send permanent ephemeral success message
               await modalSubmit.reply({
-                content: `✅ Category "${categoryName}" has been added successfully!`,
+                content: 'Category created successfully!',
                 ephemeral: true,
               });
 
@@ -284,144 +289,211 @@ export class FoodService {
               return;
             }
 
-            // Check for categories existence
-            if (categories.length == 0) {
-              await i.update({
-                content:
-                  '❌ There are currently no categories to edit. Add some categories first!',
-                components: [this.foodCategoryService.createCategoryMainMenu()],
-                embeds: [],
-              });
-              return;
+            let editCurrentPage = 1;
+            const [editInitialEmbed, editInitialCurrentPage, editTotalPages] =
+              await this.foodCategoryService.createCategoryListEmbed(
+                editCurrentPage,
+                false,
+              );
+
+            const editSelectMenu =
+              await this.foodCategoryService.updateEditCategorySelect(
+                editInitialCurrentPage,
+                editTotalPages,
+              );
+
+            // Prepare components array based on whether we have categories
+            const editComponents = [];
+
+            if (editTotalPages > 1) {
+              editComponents.push(
+                this.foodCategoryService.createPaginationButtons(
+                  editInitialCurrentPage,
+                  editTotalPages,
+                ),
+              );
             }
 
-            // Show category select menu
-            const editSelectMenu =
-              await this.foodCategoryService.updateEditCategorySelect();
-            await i.reply({
-              content:
-                'Select a category to edit:\n\n*You can delete this message or use the Up Menu button to return to the main menu.*',
-              components: [editSelectMenu],
+            if (editSelectMenu) {
+              editComponents.push(editSelectMenu);
+            } else {
+              // If no categories, add a back to menu button
+              editComponents.push(
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId('back_to_menu')
+                    .setLabel('Back to Menu')
+                    .setStyle(ButtonStyle.Secondary),
+                ),
+              );
+            }
+
+            // Create a new message for the edit view
+            const editMessage = await i.reply({
+              content: editSelectMenu ? 'Select a category to edit:' : null,
+              embeds: [editInitialEmbed],
+              components: editComponents,
               ephemeral: true,
               fetchReply: true,
             });
 
-            const editCollector = i.channel.createMessageComponentCollector({
+            const editCollector = editMessage.createMessageComponentCollector({
               filter: (interaction) => interaction.user.id === i.user.id,
               time: 300000, // 5 minutes
             });
 
             editCollector.on('collect', async (interaction) => {
-              if (!interaction.isStringSelectMenu()) return;
+              if (interaction.customId === 'back_to_menu') {
+                await interaction.update({
+                  content: 'Please select a category option:',
+                  components: [
+                    this.foodCategoryService.createCategoryMainMenu(),
+                  ],
+                  embeds: [],
+                });
+                editCollector.stop();
+                return;
+              }
 
-              try {
-                if (interaction.customId === 'edit_category_select') {
-                  const selected = interaction.values[0];
+              if (interaction.isButton()) {
+                if (interaction.customId === 'next_page') {
+                  editCurrentPage++;
+                } else if (interaction.customId === 'prev_page') {
+                  editCurrentPage--;
+                }
 
-                  // Handle category edit selection
-                  const categoryId = selected.replace('edit_', '');
-                  const category = await this.foodCategoryRepository.findOne({
-                    where: { id: categoryId },
+                const [newEmbed, newCurrentPage, newTotalPages] =
+                  await this.foodCategoryService.createCategoryListEmbed(
+                    editCurrentPage,
+                    false,
+                  );
+
+                const newEditSelectMenu =
+                  await this.foodCategoryService.updateEditCategorySelect(
+                    newCurrentPage,
+                    newTotalPages,
+                  );
+
+                await interaction.update({
+                  embeds: [newEmbed],
+                  components: [
+                    this.foodCategoryService.createPaginationButtons(
+                      newCurrentPage,
+                      newTotalPages,
+                    ),
+                    newEditSelectMenu,
+                  ],
+                });
+              }
+
+              if (
+                interaction.isStringSelectMenu() &&
+                interaction.customId === 'edit_category_select'
+              ) {
+                const selected = interaction.values[0];
+                if (selected === 'cancel') {
+                  await interaction.update({
+                    content: 'Category editing canceled.',
+                    embeds: [],
+                    components: [],
                   });
+                  editCollector.stop();
+                  return;
+                }
 
-                  if (!category) {
-                    await interaction.reply({
-                      content: 'Category not found!',
-                      ephemeral: true,
-                    });
-                    return;
-                  }
+                const categoryId = selected.replace('edit_', '');
+                const category = await this.foodCategoryRepository.findOne({
+                  where: { id: categoryId },
+                });
 
+                if (!category) {
+                  await interaction.reply({
+                    content: 'Category not found!',
+                    ephemeral: true,
+                  });
+                  return;
+                }
+
+                try {
                   // Show edit modal
                   await interaction.showModal(
                     this.foodCategoryService.createEditCategoryModal(category),
                   );
 
-                  try {
-                    const modalSubmit = await interaction.awaitModalSubmit({
-                      time: 300000,
-                      filter: (i) =>
-                        i.customId === `edit_category_modal_${category.id}`,
-                    });
+                  const modalSubmit = await interaction.awaitModalSubmit({
+                    time: 300000,
+                    filter: (i) =>
+                      i.customId === `edit_category_modal_${category.id}`,
+                  });
 
-                    const newName =
-                      modalSubmit.fields.getTextInputValue('category_name');
-                    const newDescription = modalSubmit.fields.getTextInputValue(
-                      'category_description',
+                  const newName =
+                    modalSubmit.fields.getTextInputValue('category_name');
+                  const newDescription = modalSubmit.fields.getTextInputValue(
+                    'category_description',
+                  );
+
+                  const [updatedCategory, error] =
+                    await this.foodCategoryService.handleEditCategory(
+                      category.id,
+                      newName,
+                      newDescription,
                     );
 
-                    const [updatedCategory, error] =
-                      await this.foodCategoryService.handleEditCategory(
-                        category.id,
-                        newName,
-                        newDescription,
-                      );
-
-                    if (error) {
-                      await modalSubmit.reply({
-                        content: `❌ ${error}`,
-                        ephemeral: true,
-                      });
-                      return;
-                    }
-
+                  if (error) {
                     await modalSubmit.reply({
-                      content: `✅ Category "${updatedCategory.name}" has been updated successfully!`,
+                      content: `❌ ${error}`,
                       ephemeral: true,
                     });
-
-                    // Update the select menu with new category data
-                    const updatedSelectMenu =
-                      await this.foodCategoryService.updateEditCategorySelect();
-                    await interaction.message.edit({
-                      content:
-                        'Select a category to edit:\n\n*You can delete this message or use the Up Menu button to return to the main menu.*',
-                      components: [updatedSelectMenu],
-                    });
-                  } catch (error) {
-                    this.logger.error('Error handling modal:', error);
+                    return;
                   }
-                }
-              } catch (error) {
-                this.logger.error('Error handling edit selection:', error);
-                try {
-                  await interaction.reply({
-                    content: 'An error occurred while processing your request.',
+
+                  // Send public success message
+                  await interaction.channel.send({
+                    content: `✅ Category "${updatedCategory.name}" has been updated successfully!`,
+                  });
+
+                  // Update original message with success message only
+                  await interaction.editReply({
+                    content: 'Category updated successfully!',
+                    embeds: [],
+                    components: [], // Remove all components including back to menu
+                  });
+
+                  // Acknowledge the modal submission
+                  await modalSubmit.reply({
+                    content: 'Category updated successfully!',
                     ephemeral: true,
                   });
-                } catch (e) {
-                  this.logger.error('Error sending error message:', e);
+                } catch (error) {
+                  this.logger.error('Error handling modal:', error);
+                  if (
+                    error instanceof Error &&
+                    error.message.includes('time')
+                  ) {
+                    await interaction.followUp({
+                      content: 'The modal timed out. Please try again.',
+                      ephemeral: true,
+                    });
+                  }
                 }
               }
             });
 
             editCollector.on('end', (collected, reason) => {
-              if (reason !== 'messageDelete' && reason !== 'user') {
-                try {
-                  i.deleteReply().catch(() => {});
-                } catch (error) {
-                  this.logger.error('Error removing message:', error);
-                }
+              if (reason === 'time') {
+                i.editReply({
+                  content: 'Category edit timed out.',
+                  embeds: [],
+                  components: [],
+                }).catch(() => {}); // Ignore errors if message was deleted
               }
             });
-
             break;
 
           case 'delete':
             if (!this.isAdmin(interaction)) {
               await i.update({
                 content: '❌ Only administrators can delete categories.',
-                components: [this.foodCategoryService.createCategoryMainMenu()],
-                embeds: [],
-              });
-              return;
-            }
-
-            // Check for categories existence
-            if (categories.length === 0) {
-              await i.update({
-                content:
-                  '❌ There are currently no categories to delete. Add some categories first!',
                 components: [this.foodCategoryService.createCategoryMainMenu()],
                 embeds: [],
               });
@@ -444,28 +516,40 @@ export class FoodService {
                 deleteTotalPages,
               );
 
-            const deleteMessage = await i.reply({
-              content: 'Select a category to delete:',
-              embeds: [deleteInitialEmbed],
-              components: [
+            // Prepare components array based on whether we have categories
+            const deleteComponents = [];
+
+            if (deleteTotalPages > 1) {
+              deleteComponents.push(
                 this.foodCategoryService.createPaginationButtons(
                   deleteInitialCurrentPage,
                   deleteTotalPages,
                 ),
-                deleteSelectMenu,
-              ],
+              );
+            }
+
+            if (deleteSelectMenu) {
+              deleteComponents.push(deleteSelectMenu);
+            } else {
+              // If no categories, add a back to menu button
+              deleteComponents.push(
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId('back_to_menu')
+                    .setLabel('Back to Menu')
+                    .setStyle(ButtonStyle.Secondary),
+                ),
+              );
+            }
+
+            // Create a new message for the delete view
+            const deleteMessage = await i.reply({
+              content: deleteSelectMenu ? 'Select a category to delete:' : null,
+              embeds: [deleteInitialEmbed],
+              components: deleteComponents,
               ephemeral: true,
               fetchReply: true,
             });
-
-            if (deleteTotalPages === 0) {
-              deleteMessage.edit({
-                content: 'No categories available for deletion.',
-                embeds: [],
-                components: [],
-              });
-              return;
-            }
 
             const deleteCollector =
               deleteMessage.createMessageComponentCollector({
@@ -474,6 +558,18 @@ export class FoodService {
               });
 
             deleteCollector.on('collect', async (interaction) => {
+              if (interaction.customId === 'back_to_menu') {
+                await interaction.update({
+                  content: 'Please select a category option:',
+                  components: [
+                    this.foodCategoryService.createCategoryMainMenu(),
+                  ],
+                  embeds: [],
+                });
+                deleteCollector.stop();
+                return;
+              }
+
               if (interaction.isButton()) {
                 if (interaction.customId === 'next_page') {
                   deleteCurrentPage++;
@@ -503,7 +599,9 @@ export class FoodService {
                     newDeleteSelectMenu,
                   ],
                 });
-              } else if (interaction.isStringSelectMenu()) {
+              }
+
+              if (interaction.isStringSelectMenu()) {
                 const selected = interaction.values[0];
 
                 if (selected === 'cancel') {
@@ -512,7 +610,6 @@ export class FoodService {
                     embeds: [],
                     components: [],
                   });
-                  deleteCollector.stop();
                   return;
                 }
 
@@ -529,9 +626,9 @@ export class FoodService {
                   return;
                 }
 
-                // Send confirmation message with buttons
-                const confirmationMessage = await interaction.reply({
-                  content: `Are you sure you want to delete the category "${category.name}"?`,
+                // Send confirmation message with buttons - ephemeral
+                await interaction.reply({
+                  content: `⚠️ Are you sure you want to delete the category "${category.name}"?`,
                   components: [
                     new ActionRowBuilder<ButtonBuilder>().addComponents(
                       new ButtonBuilder()
@@ -544,83 +641,55 @@ export class FoodService {
                         .setStyle(ButtonStyle.Secondary),
                     ),
                   ],
-                  fetchReply: true,
+                  ephemeral: true,
                 });
 
                 const confirmationCollector =
-                  confirmationMessage.createMessageComponentCollector({
-                    filter: (i) => i.user.id === interaction.user.id,
-                    time: 300000, // 5 minutes
+                  interaction.channel.createMessageComponentCollector({
+                    filter: (i) =>
+                      i.user.id === interaction.user.id &&
+                      (i.customId === 'confirm_delete' ||
+                        i.customId === 'cancel_delete'),
+                    time: 300000,
+                    max: 1,
                   });
 
                 confirmationCollector.on('collect', async (i) => {
                   if (i.customId === 'confirm_delete') {
                     await this.foodCategoryRepository.remove(category);
 
+                    // Send public success message
+                    await interaction.channel.send({
+                      content: `✅ Category "${category.name}" has been deleted successfully!`,
+                    });
+
+                    // Update the confirmation message
                     await i.update({
-                      content: `Category "${category.name}" has been deleted.`,
+                      content: 'Category deleted successfully!',
                       components: [],
                     });
-
-                    // Update the category list embed and select menu
-                    const [
-                      updatedEmbed,
-                      updatedCurrentPage,
-                      updatedTotalPages,
-                    ] = await this.foodCategoryService.createCategoryListEmbed(
-                      deleteCurrentPage,
-                      true,
-                    );
-
-                    const updatedDeleteSelectMenu =
-                      await this.foodCategoryService.updateDeleteCategorySelect(
-                        updatedCurrentPage,
-                        updatedTotalPages,
-                      );
-
-                    await interaction.editReply({
-                      embeds: [updatedEmbed],
-                      components: [
-                        this.foodCategoryService.createPaginationButtons(
-                          updatedCurrentPage,
-                          updatedTotalPages,
-                        ),
-                        updatedDeleteSelectMenu,
-                      ],
-                    });
                   } else if (i.customId === 'cancel_delete') {
+                    // Only update the confirmation message
                     await i.update({
-                      content: 'Category deletion canceled.',
+                      content: '❌ Category deletion canceled.',
                       components: [],
                     });
                   }
 
                   confirmationCollector.stop();
                 });
-
-                confirmationCollector.on('end', (collected, reason) => {
-                  if (reason === 'time') {
-                    confirmationMessage.edit({
-                      content: 'Confirmation timed out. Please try again.',
-                      components: [],
-                    });
-                  }
-                });
-
-                deleteCollector.stop();
               }
             });
 
             deleteCollector.on('end', (collected, reason) => {
               if (reason === 'time') {
-                deleteMessage.edit({
+                i.editReply({
                   content: 'Category deletion timed out.',
                   embeds: [],
                   components: [],
-                });
+                }).catch(() => {}); // Ignore errors if message was deleted
               }
             });
-
             break;
 
           default:
