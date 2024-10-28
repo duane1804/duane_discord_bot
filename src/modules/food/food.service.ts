@@ -78,110 +78,115 @@ export class FoodService {
           return;
         }
 
-        const categories = await this.foodCategoryRepository.find();
-
         switch (selected) {
           case 'list':
-            let currentPage = 1;
-            const [initialEmbed, initialCurrentPage, totalPages] =
+            let listCurrentPage = 1;
+            const [listInitialEmbed, listInitialCurrentPage, listTotalPages] =
               await this.foodCategoryService.createCategoryListEmbed(
-                currentPage,
+                listCurrentPage,
+                false,
+                i.guildId,
               );
 
-            // Initial update
-            await i.update({
-              content: null,
-              embeds: [initialEmbed],
-              components: [
+            // Create components array with pagination and close button
+            const listComponents = [];
+
+            if (listTotalPages > 1) {
+              listComponents.push(
                 this.foodCategoryService.createPaginationButtons(
-                  currentPage,
-                  totalPages,
+                  listInitialCurrentPage,
+                  listTotalPages,
                 ),
-                this.foodCategoryService.createCategoryListMenu(),
-              ],
+              );
+            }
+
+            listComponents.push(
+              new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                  .setCustomId('close_view')
+                  .setLabel('Close View')
+                  .setStyle(ButtonStyle.Secondary),
+              ),
+            );
+
+            // Create a new message for the list view
+            const listMessage = await i.reply({
+              content: null,
+              embeds: [listInitialEmbed],
+              components: listComponents,
+              ephemeral: true,
+              fetchReply: true,
             });
 
-            const collector = i.message.createMessageComponentCollector({
+            const listCollector = listMessage.createMessageComponentCollector({
               filter: (interaction) => interaction.user.id === i.user.id,
               time: 300000, // 5 minutes
             });
 
-            collector.on('collect', async (interaction) => {
-              // Handle back button with error handling
-              if (
-                interaction.isStringSelectMenu() &&
-                interaction.customId === 'category_select'
-              ) {
-                if (interaction.values[0] === 'back') {
-                  try {
-                    await interaction.update({
-                      content: 'Please select a category option:',
-                      components: [
-                        this.foodCategoryService.createCategoryMainMenu(),
-                      ],
-                      embeds: [],
-                    });
-                  } catch (error) {
-                    // If interaction was already acknowledged, try to edit the reply
-                    try {
-                      await i.editReply({
-                        content: 'Please select a category option:',
-                        components: [
-                          this.foodCategoryService.createCategoryMainMenu(),
-                        ],
-                        embeds: [],
-                      });
-                    } catch (editError) {
-                      this.logger.error(
-                        'Error handling back button:',
-                        editError,
-                      );
-                    }
-                  }
-                  collector.stop();
-                  return;
-                }
+            listCollector.on('collect', async (interaction) => {
+              // Handle close button
+              if (interaction.customId === 'close_view') {
+                await interaction.update({
+                  content: 'Category list view closed.',
+                  embeds: [],
+                  components: [],
+                });
+                listCollector.stop();
+                return;
               }
 
               // Handle pagination buttons
               if (interaction.isButton()) {
-                try {
-                  if (interaction.customId === 'next_page') {
-                    currentPage++;
-                  } else if (interaction.customId === 'prev_page') {
-                    currentPage--;
-                  }
-
-                  const [newEmbed, newCurrentPage, newTotalPages] =
-                    await this.foodCategoryService.createCategoryListEmbed(
-                      currentPage,
-                    );
-
-                  await interaction.update({
-                    embeds: [newEmbed],
-                    components: [
-                      this.foodCategoryService.createPaginationButtons(
-                        newCurrentPage,
-                        newTotalPages,
-                      ),
-                      this.foodCategoryService.createCategoryListMenu(),
-                    ],
-                  });
-                } catch (error) {
-                  this.logger.error('Error handling pagination:', error);
+                if (interaction.customId === 'next_page') {
+                  listCurrentPage++;
+                } else if (interaction.customId === 'prev_page') {
+                  listCurrentPage--;
+                } else {
+                  return; // Not a pagination button
                 }
+
+                const [newEmbed, newCurrentPage, newTotalPages] =
+                  await this.foodCategoryService.createCategoryListEmbed(
+                    listCurrentPage,
+                    false,
+                    interaction.guildId,
+                  );
+
+                // Rebuild components array
+                const updatedComponents = [];
+
+                if (newTotalPages > 1) {
+                  updatedComponents.push(
+                    this.foodCategoryService.createPaginationButtons(
+                      newCurrentPage,
+                      newTotalPages,
+                    ),
+                  );
+                }
+
+                updatedComponents.push(
+                  new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                      .setCustomId('close_view')
+                      .setLabel('Close View')
+                      .setStyle(ButtonStyle.Secondary),
+                  ),
+                );
+
+                await interaction.update({
+                  embeds: [newEmbed],
+                  components: updatedComponents,
+                });
               }
             });
 
-            collector.on('end', (collected, reason) => {
-              if (reason !== 'messageDelete' && reason !== 'user') {
-                try {
-                  i.editReply({
-                    components: [],
-                  }).catch(() => {});
-                } catch (error) {
-                  this.logger.error('Error removing components:', error);
-                }
+            listCollector.on('end', (collected, reason) => {
+              if (reason === 'time' && listMessage) {
+                i.editReply({
+                  content: 'Category list view timed out.',
+                  embeds: [],
+                  components: [],
+                }).catch(() => {}); // Ignore errors if message was deleted
               }
             });
             break;
@@ -217,10 +222,10 @@ export class FoodService {
                 await this.foodCategoryService.handleAddCategory(
                   categoryName,
                   description,
+                  i.guildId,
                 );
 
               if (error) {
-                // If there was an error (like duplicate name), show error message
                 await modalSubmit.reply({
                   content: `❌ ${error}`,
                   ephemeral: true,
@@ -256,7 +261,6 @@ export class FoodService {
                 embeds: [],
               });
             } catch (error) {
-              // Only try to edit reply if it's a timeout error
               if (error instanceof Error && error.message.includes('time')) {
                 await i.editReply({
                   content: 'The modal timed out. Please try again.',
@@ -294,12 +298,14 @@ export class FoodService {
               await this.foodCategoryService.createCategoryListEmbed(
                 editCurrentPage,
                 false,
+                i.guildId,
               );
 
             const editSelectMenu =
               await this.foodCategoryService.updateEditCategorySelect(
                 editInitialCurrentPage,
                 editTotalPages,
+                i.guildId,
               );
 
             // Prepare components array based on whether we have categories
@@ -366,12 +372,14 @@ export class FoodService {
                   await this.foodCategoryService.createCategoryListEmbed(
                     editCurrentPage,
                     false,
+                    interaction.guildId,
                   );
 
                 const newEditSelectMenu =
                   await this.foodCategoryService.updateEditCategorySelect(
                     newCurrentPage,
                     newTotalPages,
+                    interaction.guildId,
                   );
 
                 await interaction.update({
@@ -391,13 +399,13 @@ export class FoodService {
                 interaction.customId === 'edit_category_select'
               ) {
                 const selected = interaction.values[0];
+
                 if (selected === 'cancel') {
                   await interaction.update({
                     content: 'Category editing canceled.',
                     embeds: [],
                     components: [],
                   });
-                  editCollector.stop();
                   return;
                 }
 
@@ -437,6 +445,7 @@ export class FoodService {
                       category.id,
                       newName,
                       newDescription,
+                      interaction.guildId,
                     );
 
                   if (error) {
@@ -452,11 +461,11 @@ export class FoodService {
                     content: `✅ Category "${updatedCategory.name}" has been updated successfully!`,
                   });
 
-                  // Update original message with success message only
+                  // Update original message with success message
                   await interaction.editReply({
                     content: 'Category updated successfully!',
                     embeds: [],
-                    components: [], // Remove all components including back to menu
+                    components: [],
                   });
 
                   // Acknowledge the modal submission
@@ -508,12 +517,14 @@ export class FoodService {
             ] = await this.foodCategoryService.createCategoryListEmbed(
               deleteCurrentPage,
               true,
+              i.guildId,
             );
 
             const deleteSelectMenu =
               await this.foodCategoryService.updateDeleteCategorySelect(
                 deleteInitialCurrentPage,
                 deleteTotalPages,
+                i.guildId,
               );
 
             // Prepare components array based on whether we have categories
@@ -581,12 +592,14 @@ export class FoodService {
                   await this.foodCategoryService.createCategoryListEmbed(
                     deleteCurrentPage,
                     true,
+                    interaction.guildId,
                   );
 
                 const newDeleteSelectMenu =
                   await this.foodCategoryService.updateDeleteCategorySelect(
                     newCurrentPage,
                     newTotalPages,
+                    interaction.guildId,
                   );
 
                 await interaction.update({

@@ -5,10 +5,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { FoodCategoryService } from './services/category.service';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([FoodCategory]),
-    TypeOrmModule.forFeature([Food]),
-  ],
+  imports: [TypeOrmModule.forFeature([Food, FoodCategory])],
   providers: [FoodService, FoodCategoryService],
+  exports: [FoodService],
 })
 export class FoodModule {}

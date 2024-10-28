@@ -8,11 +8,15 @@ export class FoodCategory extends BaseEntity {
     Object.assign(this, partial);
   }
 
-  @Column({ nullable: false, type: 'varchar', unique: true }) // Added unique constraint
+  @Column({ nullable: false, type: 'varchar' })
   name: string;
 
   @Column({ nullable: true, type: 'varchar' })
   description: string;
+
+  // Make guild_id nullable initially
+  @Column({ name: 'guild_id', nullable: true, type: 'varchar' })
+  guildId: string;
 
   @OneToMany(() => Food, (food) => food.category)
   foods: Food[];
@@ -33,6 +37,10 @@ export class Food extends BaseEntity {
 
   @Column({ name: 'category_id' })
   categoryId: string;
+
+  // Make guild_id nullable initially
+  @Column({ name: 'guild_id', nullable: true, type: 'varchar' })
+  guildId: string;
 
   @ManyToOne(() => FoodCategory, (category) => category.foods, {
     onDelete: 'CASCADE',

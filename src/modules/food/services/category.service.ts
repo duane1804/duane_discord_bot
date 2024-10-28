@@ -88,11 +88,35 @@ export class FoodCategoryService {
     );
   }
 
+  async updateExistingRecordsWithGuildId(guildId: string) {
+    try {
+      // Update only food categories without guildId
+      await this.foodCategoryRepository
+        .createQueryBuilder()
+        .update(FoodCategory)
+        .set({ guildId })
+        .where('guild_id IS NULL')
+        .execute();
+
+      return true;
+    } catch (error) {
+      this.logger.error(
+        'Error updating existing records with guild ID:',
+        error,
+      );
+      return false;
+    }
+  }
+
   async createCategoryListEmbed(
     page: number = 1,
     forDeletion: boolean = false,
+    guildId: string,
   ): Promise<[EmbedBuilder, number, number]> {
+    await this.updateExistingRecordsWithGuildId(guildId);
+
     const categories = await this.foodCategoryRepository.find({
+      where: { guildId },
       relations: ['foods'],
     });
 
@@ -157,12 +181,16 @@ export class FoodCategoryService {
 
   async handleAddCategory(
     name: string,
-    description?: string,
+    description: string | null,
+    guildId: string,
   ): Promise<[FoodCategory | null, string | null]> {
     try {
-      // Check if category with same name exists
+      // First try to update any records without guildId
+      await this.updateExistingRecordsWithGuildId(guildId);
+
+      // Check if category with same name exists in the same guild
       const existingCategory = await this.foodCategoryRepository.findOne({
-        where: { name },
+        where: { name, guildId },
       });
 
       if (existingCategory) {
@@ -172,6 +200,7 @@ export class FoodCategoryService {
       const newCategory = new FoodCategory({
         name,
         description: description || null,
+        guildId,
       });
 
       const savedCategory = await this.foodCategoryRepository.save(newCategory);
@@ -200,8 +229,13 @@ export class FoodCategoryService {
     return selectMenu;
   }
 
-  async updateEditCategorySelect(page: number, totalPages: number) {
+  async updateEditCategorySelect(
+    page: number,
+    totalPages: number,
+    guildId: string,
+  ) {
     const categories = await this.foodCategoryRepository.find({
+      where: { guildId },
       skip: (page - 1) * this.ITEMS_PER_PAGE,
       take: this.ITEMS_PER_PAGE,
       relations: ['foods'],
@@ -211,7 +245,18 @@ export class FoodCategoryService {
       return null;
     }
 
-    const selectMenu = this.createEditCategorySelect();
+    const selectMenu =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('edit_category_select')
+          .setPlaceholder('Select category to edit')
+          .addOptions([
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Cancel')
+              .setDescription('Cancel category editing')
+              .setValue('cancel'),
+          ]),
+      );
 
     categories.forEach((category) => {
       (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
@@ -257,13 +302,15 @@ export class FoodCategoryService {
     categoryId: string,
     name: string,
     description?: string,
+    guildId?: string,
   ): Promise<[FoodCategory | null, string | null]> {
     try {
-      // Check if new name already exists for other categories
+      // Check if new name already exists for other categories in the same guild
       const existingCategory = await this.foodCategoryRepository.findOne({
         where: {
           name,
-          id: Not(categoryId), // Exclude current category
+          id: Not(categoryId),
+          ...(guildId && { guildId }),
         },
       });
 
@@ -272,7 +319,7 @@ export class FoodCategoryService {
       }
 
       const category = await this.foodCategoryRepository.findOne({
-        where: { id: categoryId },
+        where: { id: categoryId, ...(guildId && { guildId }) },
       });
 
       if (!category) {
@@ -308,31 +355,46 @@ export class FoodCategoryService {
     return selectMenu;
   }
 
-  async updateDeleteCategorySelect(page: number, totalPages: number) {
+  async updateDeleteCategorySelect(
+    page: number,
+    totalPages: number,
+    guildId: string,
+  ) {
     const categories = await this.foodCategoryRepository.find({
+      where: { guildId },
       skip: (page - 1) * this.ITEMS_PER_PAGE,
       take: this.ITEMS_PER_PAGE,
       relations: ['foods'],
     });
 
-    const selectMenu = this.createDeleteCategorySelect();
-
-    // If there are categories, add them to the options
-    if (categories.length > 0) {
-      categories.forEach((category) => {
-        (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
-          new StringSelectMenuOptionBuilder()
-            .setLabel(category.name)
-            .setDescription(
-              `Foods: ${category.foods?.length || 0} | ${category.description?.slice(0, 50) || 'No description'}`,
-            )
-            .setValue(`delete_${category.id}`),
-        );
-      });
-      return selectMenu;
+    if (categories.length === 0) {
+      return null;
     }
 
-    // If no categories, return null instead of a select menu
-    return null;
+    const selectMenu =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('delete_category_select')
+          .setPlaceholder('Select a category to delete')
+          .addOptions([
+            new StringSelectMenuOptionBuilder()
+              .setLabel('Cancel')
+              .setDescription('Cancel category deletion')
+              .setValue('cancel'),
+          ]),
+      );
+
+    categories.forEach((category) => {
+      (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel(category.name)
+          .setDescription(
+            `Foods: ${category.foods?.length || 0} | ${category.description?.slice(0, 50) || 'No description'}`,
+          )
+          .setValue(`delete_${category.id}`),
+      );
+    });
+
+    return selectMenu;
   }
 }
