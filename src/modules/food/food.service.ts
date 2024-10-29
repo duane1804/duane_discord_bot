@@ -755,7 +755,7 @@ export class FoodService {
 
     if (option === 'food') {
       const reply = await interaction.reply({
-        content: 'Please select a category option:',
+        content: 'Please select a food option:',
         components: [this.foodService.createFoodMainMenu()],
         ephemeral: true,
         fetchReply: true,

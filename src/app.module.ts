@@ -11,6 +11,9 @@ import { AppMailerModule } from './common/config/mailer/mailer.module';
 import { PingModule } from './modules/ping/ping.module';
 import { KissModule } from './modules/kiss/kiss.module';
 import { FoodModule } from './modules/food/food.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+import { UploadModule } from './services/upload/upload.module';
 
 @Module({
   imports: [
@@ -20,6 +23,11 @@ import { FoodModule } from './modules/food/food.module';
       cache: false,
       expandVariables: true,
     }),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'uploads'),
+      serveRoot: '/uploads',
+    }),
+    UploadModule,
     DiscordBotModule,
     DatabaseModule,
     RedisCacheModule,
