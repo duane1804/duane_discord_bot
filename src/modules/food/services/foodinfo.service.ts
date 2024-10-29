@@ -170,12 +170,12 @@ export class FoodInfoService {
       {
         name: '📁 Category',
         value: food.category?.name || 'None',
-        inline: true,
+        inline: false,
       },
       {
         name: '👤 Added By',
         value: `<@${food.userId}>`,
-        inline: true,
+        inline: false,
       },
     ];
 
