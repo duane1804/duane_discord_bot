@@ -14,8 +14,9 @@ import {
   StringSelectMenuInteraction,
 } from 'discord.js';
 import { FoodCategoryService } from './services/category.service';
-import { FoodsService } from './services/foods.services';
+import { FoodsService } from './services/foods.service';
 import { UploadService } from '../../services/upload/upload.service';
+import { FoodInfoService } from './services/foodinfo.service';
 
 @Injectable()
 export class FoodService {
@@ -28,6 +29,7 @@ export class FoodService {
     private foodCategoryService: FoodCategoryService,
     private foodService: FoodsService,
     private uploadService: UploadService,
+    private foodInfoService: FoodInfoService,
   ) {}
 
   private isAdmin(
@@ -1295,6 +1297,65 @@ export class FoodService {
           });
         }
       });
+
+      return;
+    }
+
+    if (option === 'info') {
+      let infoCurrentPage = 1;
+      const [infoInitialEmbed, infoInitialCurrentPage, infoTotalPages] =
+        await this.foodInfoService.createFoodListEmbed(
+          infoCurrentPage,
+          interaction.guildId,
+        );
+
+      const infoSelectMenu = await this.foodInfoService.createInfoFoodSelect(
+        infoInitialCurrentPage,
+        infoTotalPages,
+        interaction.guildId,
+      );
+
+      // Prepare components array
+      const infoComponents = [];
+
+      if (infoTotalPages > 1) {
+        infoComponents.push(
+          this.foodInfoService.createPaginationButtons(
+            infoInitialCurrentPage,
+            infoTotalPages,
+          ),
+        );
+      }
+
+      if (infoSelectMenu) {
+        infoComponents.push(infoSelectMenu);
+      } else {
+        // If no foods, add a back button
+        infoComponents.push(
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId('back_to_menu')
+              .setLabel('Back to Menu')
+              .setStyle(ButtonStyle.Secondary),
+          ),
+        );
+      }
+
+      const infoMessage = await interaction.reply({
+        content: infoSelectMenu
+          ? 'Select a food to view info:'
+          : 'No foods available.',
+        embeds: [infoInitialEmbed],
+        components: infoComponents,
+        ephemeral: true,
+        fetchReply: true,
+      });
+
+      await this.foodInfoService.handleInfoFlow(
+        infoMessage as Message,
+        interaction,
+        infoCurrentPage,
+      );
 
       return;
     }

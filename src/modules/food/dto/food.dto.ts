@@ -9,6 +9,7 @@ export class OptionDto {
     description: 'Option to choose',
     required: true,
     choices: [
+      { name: 'Food Info', value: 'info' },
       { name: 'Category', value: 'category' },
       { name: 'Food', value: 'food' },
       { name: 'Random a food', value: 'random' },
