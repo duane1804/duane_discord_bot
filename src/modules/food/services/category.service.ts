@@ -118,35 +118,42 @@ export class FoodCategoryService {
     }
   }
 
-  async createCategoryListEmbed(
+  public async createCategoryListEmbed(
     page: number = 1,
     forDeletion: boolean = false,
     guildId: string,
   ): Promise<[EmbedBuilder, number, number]> {
     await this.updateExistingRecordsWithGuildId(guildId);
 
+    // Get total count first
+    const totalCategories = await this.foodCategoryRepository.count({
+      where: { guildId },
+    });
+
+    const totalPages = Math.ceil(totalCategories / this.ITEMS_PER_PAGE);
+    const currentPage = Math.max(1, Math.min(page, totalPages));
+    const skip = (currentPage - 1) * this.ITEMS_PER_PAGE;
+
+    // Fetch categories for current page
     const categories = await this.foodCategoryRepository.find({
       where: { guildId },
       relations: ['foods'],
+      order: { name: 'ASC' },
+      skip: skip,
+      take: this.ITEMS_PER_PAGE,
     });
-
-    const totalPages = Math.ceil(categories.length / this.ITEMS_PER_PAGE);
-    const currentPage = Math.max(1, Math.min(page, totalPages));
-    const startIndex = (currentPage - 1) * this.ITEMS_PER_PAGE;
-    const endIndex = startIndex + this.ITEMS_PER_PAGE;
-    const pageCategories = categories.slice(startIndex, endIndex);
 
     const embed = new EmbedBuilder()
       .setTitle(forDeletion ? '🗑️ Delete Category' : '🍽️ Food Categories!')
       .setColor(Colors.Blue)
       .setTimestamp();
 
-    if (categories.length === 0) {
+    if (totalCategories === 0) {
       embed.setDescription(
         'No categories found. Add some categories to get started!',
       );
     } else {
-      const categoryFields = pageCategories.map((category) => ({
+      const categoryFields = categories.map((category) => ({
         name: `📁 ${category.name}`,
         value: `Description: ${category.description || 'No description'}\nFoods: ${category.foods?.length || 0}`,
         inline: false,
@@ -154,7 +161,7 @@ export class FoodCategoryService {
 
       embed.addFields(categoryFields);
       embed.setFooter({
-        text: `Page ${currentPage}/${totalPages} • Total Categories: ${categories.length}`,
+        text: `Page ${currentPage}/${totalPages} • Total Categories: ${totalCategories}`,
       });
     }
 
@@ -365,16 +372,21 @@ export class FoodCategoryService {
     return selectMenu;
   }
 
-  async updateDeleteCategorySelect(
+  public async updateDeleteCategorySelect(
     page: number,
     totalPages: number,
     guildId: string,
   ) {
+    // Calculate the skip and take values based on the page
+    const skip = (page - 1) * this.ITEMS_PER_PAGE;
+
+    // Fetch categories with pagination
     const categories = await this.foodCategoryRepository.find({
       where: { guildId },
-      skip: (page - 1) * this.ITEMS_PER_PAGE,
-      take: this.ITEMS_PER_PAGE,
       relations: ['foods'],
+      order: { name: 'ASC' },
+      skip: skip,
+      take: this.ITEMS_PER_PAGE,
     });
 
     if (categories.length === 0) {
@@ -394,6 +406,7 @@ export class FoodCategoryService {
           ]),
       );
 
+    // Add the categories from the current page
     categories.forEach((category) => {
       (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
         new StringSelectMenuOptionBuilder()
