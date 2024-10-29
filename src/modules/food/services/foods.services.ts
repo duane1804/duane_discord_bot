@@ -522,6 +522,8 @@ export class FoodsService {
                       ),
                     ],
                   });
+
+                  // Delete invalid upload
                   try {
                     await message.delete();
                   } catch (error) {
@@ -530,21 +532,35 @@ export class FoodsService {
                   return;
                 }
 
-                // Process the upload
                 try {
-                  setTimeout(async () => {
-                    await message.delete();
-                  }, 1000); // Clean up upload message
+                  // Update message to show uploading status
+                  await buttonInteraction.editReply({
+                    content: '⏳ Processing image upload, please wait...',
+                    components: [],
+                  });
 
-                  // Process the food addition with image
+                  // Store the attachment URL
+                  const attachmentUrl = attachment.url;
+
+                  // Wait for 3 seconds to ensure the upload is complete
+                  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+                  // Try to process the food addition with image
                   await this.processFoodAddition(
                     modalSubmit,
                     interaction,
                     categoryId,
                     name,
                     description,
-                    attachment.url,
+                    attachmentUrl,
                   );
+
+                  // If processing succeeds, delete the upload message
+                  try {
+                    await message.delete();
+                  } catch (error) {
+                    this.logger.warn('Could not delete upload message:', error);
+                  }
 
                   messageCollector.stop();
                 } catch (error) {
@@ -561,6 +577,16 @@ export class FoodsService {
                       ),
                     ],
                   });
+
+                  // Try to delete the message if there was an error
+                  try {
+                    await message.delete();
+                  } catch (deleteError) {
+                    this.logger.warn(
+                      'Could not delete message after error:',
+                      deleteError,
+                    );
+                  }
                 }
               });
 
