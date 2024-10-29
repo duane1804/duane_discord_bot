@@ -15,6 +15,7 @@ import {
 } from 'discord.js';
 import { FoodCategoryService } from './services/category.service';
 import { FoodsService } from './services/foods.services';
+import { UploadService } from '../../services/upload/upload.service';
 
 @Injectable()
 export class FoodService {
@@ -26,6 +27,7 @@ export class FoodService {
     private readonly foodRepository: Repository<Food>,
     private foodCategoryService: FoodCategoryService,
     private foodService: FoodsService,
+    private uploadService: UploadService,
   ) {}
 
   private isAdmin(
@@ -910,6 +912,369 @@ export class FoodService {
 
             // Start the add food flow
             await this.foodService.createAddFoodMessage(i);
+            break;
+
+          case 'edit':
+            if (!this.isAdmin(interaction)) {
+              await i.update({
+                content: '❌ Only administrators can edit foods.',
+                components: [this.foodService.createFoodMainMenu()],
+                embeds: [],
+              });
+              return;
+            }
+
+            let editCurrentPage = 1;
+            const [editInitialEmbed, editInitialCurrentPage, editTotalPages] =
+              await this.foodService.createFoodListEmbed(
+                editCurrentPage,
+                false,
+                i.guildId,
+              );
+
+            const editSelectMenu =
+              await this.foodService.createEditFoodCategorySelect(
+                editInitialCurrentPage,
+                editTotalPages,
+                i.guildId,
+              );
+
+            // Prepare components array based on whether we have foods
+            const editComponents = [];
+
+            if (editTotalPages > 1) {
+              editComponents.push(
+                this.foodService.createPaginationButtons(
+                  editInitialCurrentPage,
+                  editTotalPages,
+                ),
+              );
+            }
+
+            if (editSelectMenu) {
+              editComponents.push(editSelectMenu);
+            } else {
+              // If no foods, add a back to menu button
+              editComponents.push(
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId('back_to_menu')
+                    .setLabel('Back to Menu')
+                    .setStyle(ButtonStyle.Secondary),
+                ),
+              );
+            }
+
+            // Create a new message for the edit view
+            const editMessage = await i.reply({
+              content: editSelectMenu ? 'Select a food to edit:' : null,
+              embeds: [editInitialEmbed],
+              components: editComponents,
+              ephemeral: true,
+              fetchReply: true,
+            });
+
+            const editCollector = editMessage.createMessageComponentCollector({
+              filter: (interaction) => interaction.user.id === i.user.id,
+              time: 300000, // 5 minutes
+            });
+
+            editCollector.on('collect', async (interaction) => {
+              if (interaction.customId === 'back_to_menu') {
+                await interaction.update({
+                  content: 'Please select a food option:',
+                  components: [this.foodService.createFoodMainMenu()],
+                  embeds: [],
+                });
+                editCollector.stop();
+                return;
+              }
+
+              if (interaction.isButton()) {
+                if (interaction.customId === 'next_page') {
+                  editCurrentPage++;
+                } else if (interaction.customId === 'prev_page') {
+                  editCurrentPage--;
+                }
+
+                const [newEmbed, newCurrentPage, newTotalPages] =
+                  await this.foodService.createFoodListEmbed(
+                    editCurrentPage,
+                    false,
+                    interaction.guildId,
+                  );
+
+                const newEditSelectMenu =
+                  await this.foodService.createEditFoodCategorySelect(
+                    newCurrentPage,
+                    newTotalPages,
+                    interaction.guildId,
+                  );
+
+                await interaction.update({
+                  embeds: [newEmbed],
+                  components: [
+                    this.foodService.createPaginationButtons(
+                      newCurrentPage,
+                      newTotalPages,
+                    ),
+                    newEditSelectMenu,
+                  ],
+                });
+              }
+
+              if (
+                interaction.isStringSelectMenu() &&
+                interaction.customId === 'edit_food_select'
+              ) {
+                const selected = interaction.values[0];
+
+                if (selected === 'cancel') {
+                  await interaction.update({
+                    content: 'Food editing canceled.',
+                    embeds: [],
+                    components: [],
+                  });
+                  return;
+                }
+
+                const foodId = selected.replace('edit_', '');
+                const food = await this.foodRepository.findOne({
+                  where: { id: foodId },
+                  relations: ['category'],
+                });
+
+                if (!food) {
+                  await interaction.reply({
+                    content: 'Food not found!',
+                    ephemeral: true,
+                  });
+                  return;
+                }
+
+                try {
+                  // Show edit modal
+                  await interaction.showModal(
+                    this.foodService.createEditFoodModal(food, food.category),
+                  );
+
+                  const modalSubmit = await interaction.awaitModalSubmit({
+                    time: 300000,
+                    filter: (i) => i.customId === `edit_food_modal_${food.id}`,
+                  });
+
+                  const newName =
+                    modalSubmit.fields.getTextInputValue('food_name');
+                  const newDescription =
+                    modalSubmit.fields.getTextInputValue('food_description');
+
+                  // Check if user wants to edit image
+                  const attachmentRow =
+                    new ActionRowBuilder<ButtonBuilder>().addComponents(
+                      new ButtonBuilder()
+                        .setCustomId('change_image')
+                        .setLabel('Change Image')
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji('📎'),
+                      new ButtonBuilder()
+                        .setCustomId('keep_image')
+                        .setLabel('Keep Current Image')
+                        .setStyle(ButtonStyle.Secondary),
+                    );
+
+                  // Ask about image change
+                  const imageChoiceMessage = await modalSubmit.reply({
+                    content: 'Would you like to change the food image?',
+                    components: [attachmentRow],
+                    ephemeral: true,
+                    fetchReply: true,
+                  });
+
+                  const imageChoiceCollector =
+                    imageChoiceMessage.createMessageComponentCollector({
+                      filter: (i) => i.user.id === modalSubmit.user.id,
+                      time: 300000,
+                      max: 1,
+                    });
+
+                  imageChoiceCollector.on(
+                    'collect',
+                    async (buttonInteraction) => {
+                      if (buttonInteraction.customId === 'change_image') {
+                        // Handle image upload similar to add food
+                        await buttonInteraction.update({
+                          content:
+                            '📤 **To add a new image:**\n' +
+                            '1. Click the plus icon (+) next to the chat box\n' +
+                            '2. Select your image file\n' +
+                            '3. Send it in this channel\n\n' +
+                            '*Waiting for your image upload...*',
+                          components: [
+                            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                              new ButtonBuilder()
+                                .setCustomId('cancel_upload')
+                                .setLabel('Cancel')
+                                .setStyle(ButtonStyle.Secondary),
+                            ),
+                          ],
+                        });
+
+                        const messageCollector =
+                          buttonInteraction.channel.createMessageCollector({
+                            filter: (m) =>
+                              m.author.id === modalSubmit.user.id &&
+                              m.attachments.size > 0,
+                            time: 300000,
+                            max: 1,
+                          });
+
+                        messageCollector.on('collect', async (message) => {
+                          const attachment = message.attachments.first();
+
+                          if (!attachment.contentType?.startsWith('image/')) {
+                            await buttonInteraction.editReply({
+                              content:
+                                '❌ Please upload an image file (PNG, JPG, etc.)',
+                              components: [
+                                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                                  new ButtonBuilder()
+                                    .setCustomId('cancel_upload')
+                                    .setLabel('Cancel')
+                                    .setStyle(ButtonStyle.Secondary),
+                                ),
+                              ],
+                            });
+                            return;
+                          }
+
+                          try {
+                            // Update message to show uploading status
+                            await buttonInteraction.editReply({
+                              content:
+                                '⏳ Processing image upload, please wait...',
+                              components: [],
+                            });
+
+                            const uploadedImagePath =
+                              await this.uploadService.uploadFromDiscord(
+                                attachment.url,
+                                modalSubmit.guildId,
+                                'foods',
+                              );
+
+                            // Update the food with new information including image
+                            const [updatedFood, error] =
+                              await this.foodService.handleEditFood(
+                                food.id,
+                                newName,
+                                newDescription,
+                                uploadedImagePath,
+                                interaction.guildId,
+                              );
+
+                            if (error) {
+                              await buttonInteraction.editReply({
+                                content: `❌ ${error}`,
+                                components: [],
+                              });
+                              return;
+                            }
+
+                            // Send success messages and handle cleanup
+                            await this.foodService.handleEditSuccess(
+                              interaction,
+                              buttonInteraction,
+                              updatedFood,
+                              uploadedImagePath,
+                            );
+
+                            // Delete the upload message
+                            try {
+                              await message.delete();
+                            } catch (error) {
+                              this.logger.warn(
+                                'Could not delete upload message:',
+                                error,
+                              );
+                            }
+                          } catch (error) {
+                            this.logger.error(
+                              'Error processing upload:',
+                              error,
+                            );
+                            await buttonInteraction.editReply({
+                              content:
+                                '❌ Failed to process image. Please try again.',
+                              components: [],
+                            });
+                          }
+                        });
+                      } else if (buttonInteraction.customId === 'keep_image') {
+                        // Update food without changing image
+                        const [updatedFood, error] =
+                          await this.foodService.handleEditFood(
+                            food.id,
+                            newName,
+                            newDescription,
+                            undefined, // undefined means keep existing image
+                            interaction.guildId,
+                          );
+
+                        if (error) {
+                          await buttonInteraction.update({
+                            content: `❌ ${error}`,
+                            components: [],
+                          });
+                          return;
+                        }
+
+                        // Send success messages
+                        await this.foodService.handleEditSuccess(
+                          interaction,
+                          buttonInteraction,
+                          updatedFood,
+                          food.image,
+                        );
+                      }
+                    },
+                  );
+                } catch (error) {
+                  this.logger.error('Error handling modal:', error);
+                  if (
+                    error instanceof Error &&
+                    error.message.includes('time')
+                  ) {
+                    await interaction.followUp({
+                      content: 'The modal timed out. Please try again.',
+                      ephemeral: true,
+                    });
+                  }
+                }
+              }
+            });
+
+            editCollector.on('end', (collected, reason) => {
+              if (reason === 'time') {
+                i.editReply({
+                  content: 'Food edit timed out.',
+                  embeds: [],
+                  components: [],
+                }).catch(() => {}); // Ignore errors if message was deleted
+              }
+            });
+            break;
+
+          case 'delete':
+            if (!this.isAdmin(interaction)) {
+              await i.update({
+                content: '❌ Only administrators can delete foods.',
+                components: [this.foodService.createFoodMainMenu()],
+                embeds: [],
+              });
+              return;
+            }
+
+            await this.foodService.createDeleteFoodMessage(i);
             break;
           default:
             await i.update({
