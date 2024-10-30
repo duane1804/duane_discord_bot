@@ -17,6 +17,7 @@ import { FoodCategoryService } from './services/category.service';
 import { FoodsService } from './services/foods.service';
 import { UploadService } from '../../services/upload/upload.service';
 import { FoodInfoService } from './services/foodinfo.service';
+import { RandomService } from './services/random.service';
 
 @Injectable()
 export class FoodService {
@@ -30,6 +31,7 @@ export class FoodService {
     private foodService: FoodsService,
     private uploadService: UploadService,
     private foodInfoService: FoodInfoService,
+    private randomService: RandomService,
   ) {}
 
   private isAdmin(
@@ -1361,10 +1363,87 @@ export class FoodService {
     }
 
     if (option === 'random') {
-      return interaction.reply({
-        content: "Here's a random food!",
-        ephemeral: true,
+      const randomSelectMenu = await this.randomService.createRandomFoodSelect(interaction.guildId);
+
+      if (!randomSelectMenu) {
+        return interaction.reply({
+          content: "No food categories found. Please add some categories and foods first!",
+          ephemeral: true
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const randomMessage = await interaction.editReply({
+        content: "Select categories to get a random food from (up to 5):",
+        components: [randomSelectMenu],
       });
+
+      const randomCollector = (randomMessage as Message).createMessageComponentCollector({
+        filter: i => i.user.id === interaction.user.id,
+        time: 300000
+      });
+
+      randomCollector.on('collect', async i => {
+        if (i.isStringSelectMenu() && i.customId === 'random_food_category') {
+          await this.randomService.handleRandomFoodSelection(i);
+        }
+
+        if (i.isButton()) {
+          if (i.customId === 'another_random') {
+            const currentValues = (i.message.components[0]?.components[0] as any)?.values || [];
+            const [randomFood, error] = await this.randomService.getRandomFood(currentValues, interaction.guildId);
+
+            if (error) {
+              await i.update({
+                content: `❌ ${error}`,
+                components: [],
+                embeds: [],
+                files: []
+              });
+              return;
+            }
+
+            const [embed, attachment] = await this.randomService.createRandomFoodEmbed(randomFood);
+            const updateOptions: any = {
+              content: null,
+              embeds: [embed],
+              components: i.message.components,
+              files: attachment ? [attachment] : []
+            };
+
+            await i.update(updateOptions);
+          } else if (i.customId === 'change_categories') {
+            await i.update({
+              content: "Select categories to get a random food from (up to 5):",
+              components: [randomSelectMenu],
+              embeds: [],
+              files: []
+            });
+          } else if (i.customId === 'close_random') {
+            await i.update({
+              content: "Random food selection closed.",
+              components: [],
+              embeds: [],
+              files: []
+            });
+            randomCollector.stop();
+          }
+        }
+      });
+
+      randomCollector.on('end', (collected, reason) => {
+        if (reason === 'time') {
+          interaction.editReply({
+            content: "Random food selection timed out.",
+            components: [],
+            embeds: [],
+            files: []
+          }).catch(() => {});
+        }
+      });
+
+      return;
     }
 
     return interaction.reply({

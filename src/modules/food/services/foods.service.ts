@@ -12,7 +12,7 @@ import {
   MessageComponentInteraction,
   ModalBuilder,
   ModalSubmitInteraction,
-  StringSelectMenuBuilder,
+  StringSelectMenuBuilder, StringSelectMenuInteraction,
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -2247,5 +2247,142 @@ export class FoodsService {
           .catch(() => {});
       }
     });
+  }
+
+  async createRandomFoodSelect(guildId: string) {
+    const categories = await this.foodCategoryRepository.find({
+      where: { guildId },
+      relations: ['foods'],
+      order: { name: 'ASC' },
+    });
+
+    if (categories.length === 0) {
+      return null;
+    }
+
+    const selectMenu = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('random_food_category')
+        .setPlaceholder('Select a category')
+        .addOptions([
+          new StringSelectMenuOptionBuilder()
+            .setLabel('All Categories')
+            .setDescription('Get a random food from all categories')
+            .setValue('all'),
+        ])
+    );
+
+    categories.forEach(category => {
+      if (category.foods?.length > 0) {
+        (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
+          new StringSelectMenuOptionBuilder()
+            .setLabel(category.name)
+            .setDescription(`${category.foods.length} foods available`)
+            .setValue(category.id)
+        );
+      }
+    });
+
+    return selectMenu;
+  }
+
+  async getRandomFood(categoryId: string | 'all', guildId: string): Promise<[Food | null, string | null]> {
+    try {
+      let foods: Food[];
+
+      if (categoryId === 'all') {
+        foods = await this.foodRepository.find({
+          where: { guildId },
+          relations: ['category'],
+        });
+      } else {
+        foods = await this.foodRepository.find({
+          where: { categoryId, guildId },
+          relations: ['category'],
+        });
+      }
+
+      if (foods.length === 0) {
+        return [null, categoryId === 'all' ?
+          'No foods found in any category!' :
+          'No foods found in this category!'];
+      }
+
+      const randomFood = foods[Math.floor(Math.random() * foods.length)];
+      return [randomFood, null];
+    } catch (error) {
+      this.logger.error('Error getting random food:', error);
+      return [null, 'Failed to get random food. Please try again.'];
+    }
+  }
+
+  async createRandomFoodEmbed(food: Food): Promise<[EmbedBuilder, any | null]> {
+    const embed = new EmbedBuilder()
+      .setTitle(`🎲 Random Food: ${food.name}`)
+      .setColor(Colors.Blue)
+      .addFields([
+        { name: 'Category', value: food.category?.name || 'None', inline: true },
+      ]);
+
+    if (food.description) {
+      embed.addFields([{ name: 'Description', value: food.description }]);
+    }
+
+    let attachment = null;
+    if (food.image) {
+      const fullPath = this.uploadService.getFullPath(food.image);
+      if (existsSync(fullPath)) {
+        const imageBuffer = await fs.promises.readFile(fullPath);
+        attachment = new AttachmentBuilder(imageBuffer, {
+          name: 'food-image.png',
+          description: `Image for ${food.name}`,
+        });
+        embed.setImage('attachment://food-image.png');
+      }
+    }
+
+    embed.setTimestamp();
+    return [embed, attachment];
+  }
+
+  async handleRandomFoodSelection(interaction: StringSelectMenuInteraction) {
+    const categoryId = interaction.values[0];
+    const [randomFood, error] = await this.getRandomFood(categoryId, interaction.guildId);
+
+    if (error) {
+      await interaction.update({
+        content: `❌ ${error}`,
+        components: [],
+        embeds: [],
+      });
+      return;
+    }
+
+    const [embed, attachment] = await this.createRandomFoodEmbed(randomFood);
+
+    const components = [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId('another_random')
+          .setLabel('Get Another')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('close_random')
+          .setLabel('Close')
+          .setStyle(ButtonStyle.Secondary)
+      )
+    ];
+
+    const updateOptions: any = {
+      content: null,
+      embeds: [embed],
+      components,
+    };
+
+    if (attachment) {
+      updateOptions.files = [attachment];
+    }
+
+    await interaction.update(updateOptions);
   }
 }

@@ -1,4 +1,4 @@
-export type ModuleType = 'foods' | 'menus' | 'categories' | 'users';
+export type ModuleType = 'foods' | 'menus' | 'categories' | 'users' | 'kiss';
 
 export type AllowedMimeType =
   | 'image/jpeg'
