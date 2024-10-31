@@ -299,7 +299,10 @@ export class FoodInfoService {
 
           const foodId = selected.replace('info_', '');
           const food = await this.foodRepository.findOne({
-            where: { id: foodId },
+            where: {
+              id: foodId,
+              guildId: interaction.guildId,
+            },
             relations: ['category'],
           });
 
