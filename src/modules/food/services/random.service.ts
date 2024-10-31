@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   ActionRowBuilder,
   AttachmentBuilder,
@@ -8,13 +8,9 @@ import {
   ButtonStyle,
   Colors,
   EmbedBuilder,
-  Message,
-  MessageComponentInteraction,
-  ModalBuilder,
-  ModalSubmitInteraction,
-  StringSelectMenuBuilder, StringSelectMenuInteraction,
+  StringSelectMenuBuilder,
+  StringSelectMenuInteraction,
   StringSelectMenuOptionBuilder,
-  TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
 import { Food, FoodCategory } from '../entities/food.entity';
@@ -43,27 +39,28 @@ export class RandomService {
 
     if (categories.length === 0) return null;
 
-    const activeCategories = categories.filter(cat => cat.foods?.length > 0);
+    const activeCategories = categories.filter((cat) => cat.foods?.length > 0);
 
-    const selectMenu = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('random_food_category')
-        .setPlaceholder('Select a category')
-        .addOptions([
-          new StringSelectMenuOptionBuilder()
-            .setLabel('All Categories')
-            .setDescription('Get a random food from all categories')
-            .setValue('all')
-            .setEmoji('🎲'),
-          ...activeCategories.map(category =>
+    const selectMenu =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('random_food_category')
+          .setPlaceholder('Select a category')
+          .addOptions([
             new StringSelectMenuOptionBuilder()
-              .setLabel(category.name)
-              .setDescription(`${category.foods.length} foods available`)
-              .setValue(category.id)
-              .setEmoji('📋')
-          )
-        ])
-    );
+              .setLabel('All Categories')
+              .setDescription('Get a random food from all categories')
+              .setValue('all')
+              .setEmoji('🎲'),
+            ...activeCategories.map((category) =>
+              new StringSelectMenuOptionBuilder()
+                .setLabel(category.name)
+                .setDescription(`${category.foods.length} foods available`)
+                .setValue(category.id)
+                .setEmoji('📋'),
+            ),
+          ]),
+      );
 
     // Enable multi-select only if enough categories are available
     if (activeCategories.length >= 5) {
@@ -76,29 +73,41 @@ export class RandomService {
     return selectMenu;
   }
 
-  async getRandomFood(categoryIds: string[], guildId: string): Promise<[Food | null, string | null]> {
+  async getRandomFood(
+    categoryIds: string[],
+    guildId: string,
+  ): Promise<[Food | null, string | null]> {
     try {
       let foods: Food[] = [];
 
       if (categoryIds.includes('all')) {
-        foods = await this.foodRepository.find({
+        // Fetch all categories for the guild
+        const categories = await this.foodCategoryRepository.find({
           where: { guildId },
+        });
+
+        // Filter all foods based on the guild's categories
+        foods = await this.foodRepository.find({
+          where: { guildId, categoryId: In(categories.map((cat) => cat.id)) },
           relations: ['category'],
         });
       } else {
         foods = await this.foodRepository.find({
           where: {
             categoryId: In(categoryIds),
-            guildId
+            guildId,
           },
           relations: ['category'],
         });
       }
 
       if (foods.length === 0) {
-        return [null, categoryIds.includes('all') ?
-          'No foods found in any category!' :
-          'No foods found in selected categories!'];
+        return [
+          null,
+          categoryIds.includes('all')
+            ? 'No foods found in any category!'
+            : 'No foods found in selected categories!',
+        ];
       }
 
       const randomFood = foods[Math.floor(Math.random() * foods.length)];
@@ -111,32 +120,66 @@ export class RandomService {
 
   async handleRandomFoodSelection(interaction: StringSelectMenuInteraction) {
     const categoryIds = interaction.values;
-    const [randomFood, error] = await this.getRandomFood(categoryIds, interaction.guildId);
+    const [randomFood, error] = await this.getRandomFood(
+      categoryIds,
+      interaction.guildId,
+    );
 
     if (error) {
       await interaction.update({
         content: `❌ ${error}`,
         components: [],
-        embeds: [],
       });
       return;
     }
 
-    // Create public embed without buttons
-    const [publicEmbed, attachment] = await this.createRandomFoodEmbed(randomFood);
+    // Create public embed
+    const embed = new EmbedBuilder()
+      .setTitle(`🎲 Random Food Result`)
+      .setDescription(`**${randomFood.name}**`)
+      .setColor(Colors.Blue)
+      .addFields([
+        {
+          name: '📁 Category',
+          value: randomFood.category?.name || 'None',
+          inline: true,
+        },
+      ]);
 
-    // Send public message
+    if (randomFood.description) {
+      embed.addFields([
+        { name: '📝 Description', value: randomFood.description },
+      ]);
+    }
+
+    const attachment = randomFood.image
+      ? new AttachmentBuilder(
+          this.uploadService.getFullPath(randomFood.image),
+          {
+            name: 'food-image.png',
+            description: `Image for ${randomFood.name}`,
+          },
+        )
+      : null;
+
+    if (attachment) {
+      embed.setImage('attachment://food-image.png');
+    }
+
+    embed.setTimestamp();
+
+    // Send public message with embed
     await interaction.channel.send({
       content: `${interaction.user} got a random food:`,
-      embeds: [publicEmbed],
-      files: attachment ? [attachment] : []
+      embeds: [embed],
+      files: attachment ? [attachment] : [],
     });
 
-    // Update original message with buttons (private)
+    // Store selected categories in a custom ID for the buttons
     const components = [
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
-          .setCustomId('another_random')
+          .setCustomId(`another_random:${categoryIds.join(',')}`)
           .setLabel('Get Another')
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
@@ -146,15 +189,14 @@ export class RandomService {
         new ButtonBuilder()
           .setCustomId('close_random')
           .setLabel('Close')
-          .setStyle(ButtonStyle.Secondary)
-      )
+          .setStyle(ButtonStyle.Secondary),
+      ),
     ];
 
     await interaction.update({
-      content: "Use these controls to get another random food or change categories:",
+      content:
+        'Use these controls to get another random food or change categories:',
       components,
-      embeds: [],
-      files: []
     });
   }
 
@@ -163,7 +205,11 @@ export class RandomService {
       .setTitle(`🎲 Random Food: ${food.name}`)
       .setColor(Colors.Blue)
       .addFields([
-        { name: 'Category', value: food.category?.name || 'None', inline: true },
+        {
+          name: 'Category',
+          value: food.category?.name || 'None',
+          inline: true,
+        },
       ]);
 
     if (food.description) {

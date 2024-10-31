@@ -12,7 +12,8 @@ import {
   MessageComponentInteraction,
   ModalBuilder,
   ModalSubmitInteraction,
-  StringSelectMenuBuilder, StringSelectMenuInteraction,
+  StringSelectMenuBuilder,
+  StringSelectMenuInteraction,
   StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -232,7 +233,7 @@ export class FoodsService {
   // Add food
 
   // Create food category selection menu for the add food form
-  async createFoodCategorySelect() {
+  async createFoodCategorySelect(guildId: string) {
     const selectMenu =
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
@@ -240,7 +241,10 @@ export class FoodsService {
           .setPlaceholder('Select a category for the food'),
       );
 
-    const categories = await this.foodCategoryRepository.find();
+    const categories = await this.foodCategoryRepository.find({
+      where: { guildId },
+      order: { name: 'ASC' },
+    });
 
     categories.forEach((category) => {
       (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
@@ -369,7 +373,9 @@ export class FoodsService {
     isFollowUp: boolean = false,
   ): Promise<void> {
     try {
-      const categorySelectMenu = await this.createFoodCategorySelect();
+      const categorySelectMenu = await this.createFoodCategorySelect(
+        interaction.guildId,
+      );
 
       const addFoodEmbed = new EmbedBuilder()
         .setTitle('🍽️ Add New Food')
@@ -2260,25 +2266,26 @@ export class FoodsService {
       return null;
     }
 
-    const selectMenu = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId('random_food_category')
-        .setPlaceholder('Select a category')
-        .addOptions([
-          new StringSelectMenuOptionBuilder()
-            .setLabel('All Categories')
-            .setDescription('Get a random food from all categories')
-            .setValue('all'),
-        ])
-    );
+    const selectMenu =
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('random_food_category')
+          .setPlaceholder('Select a category')
+          .addOptions([
+            new StringSelectMenuOptionBuilder()
+              .setLabel('All Categories')
+              .setDescription('Get a random food from all categories')
+              .setValue('all'),
+          ]),
+      );
 
-    categories.forEach(category => {
+    categories.forEach((category) => {
       if (category.foods?.length > 0) {
         (selectMenu.components[0] as StringSelectMenuBuilder).addOptions(
           new StringSelectMenuOptionBuilder()
             .setLabel(category.name)
             .setDescription(`${category.foods.length} foods available`)
-            .setValue(category.id)
+            .setValue(category.id),
         );
       }
     });
@@ -2286,7 +2293,10 @@ export class FoodsService {
     return selectMenu;
   }
 
-  async getRandomFood(categoryId: string | 'all', guildId: string): Promise<[Food | null, string | null]> {
+  async getRandomFood(
+    categoryId: string | 'all',
+    guildId: string,
+  ): Promise<[Food | null, string | null]> {
     try {
       let foods: Food[];
 
@@ -2303,9 +2313,12 @@ export class FoodsService {
       }
 
       if (foods.length === 0) {
-        return [null, categoryId === 'all' ?
-          'No foods found in any category!' :
-          'No foods found in this category!'];
+        return [
+          null,
+          categoryId === 'all'
+            ? 'No foods found in any category!'
+            : 'No foods found in this category!',
+        ];
       }
 
       const randomFood = foods[Math.floor(Math.random() * foods.length)];
@@ -2321,7 +2334,11 @@ export class FoodsService {
       .setTitle(`🎲 Random Food: ${food.name}`)
       .setColor(Colors.Blue)
       .addFields([
-        { name: 'Category', value: food.category?.name || 'None', inline: true },
+        {
+          name: 'Category',
+          value: food.category?.name || 'None',
+          inline: true,
+        },
       ]);
 
     if (food.description) {
@@ -2347,7 +2364,10 @@ export class FoodsService {
 
   async handleRandomFoodSelection(interaction: StringSelectMenuInteraction) {
     const categoryId = interaction.values[0];
-    const [randomFood, error] = await this.getRandomFood(categoryId, interaction.guildId);
+    const [randomFood, error] = await this.getRandomFood(
+      categoryId,
+      interaction.guildId,
+    );
 
     if (error) {
       await interaction.update({
@@ -2369,8 +2389,8 @@ export class FoodsService {
         new ButtonBuilder()
           .setCustomId('close_random')
           .setLabel('Close')
-          .setStyle(ButtonStyle.Secondary)
-      )
+          .setStyle(ButtonStyle.Secondary),
+      ),
     ];
 
     const updateOptions: any = {
