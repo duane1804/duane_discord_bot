@@ -1,4 +1,6 @@
 import { customAlphabet } from 'nanoid';
+import { SlashCommandContext } from 'necord';
+import { PermissionsBitField, StringSelectMenuInteraction } from 'discord.js';
 
 const alphabet =
   '123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -25,9 +27,28 @@ export const getEnumKeys = (entity: any) => {
   return keys;
 };
 
-export const getEnumValues = (entity: any) => {
-  const values = Object.keys(entity)
-    .filter((key) => !isNaN(Number(key)))
-    .map((key) => Number(key));
-  return values;
+export const isAdmin = async (
+  interaction: SlashCommandContext[0] | StringSelectMenuInteraction,
+): Promise<boolean> => {
+  // Ensure the interaction is from a guild
+  if (!interaction.guild) return false;
+
+  try {
+    // Try to get the member from the cache
+    let member = interaction.guild.members.cache.get(interaction.user.id);
+
+    // If the member is not in the cache, fetch it from the API
+    if (!member) {
+      member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+    }
+
+    // If the member still can't be found, return false
+    if (!member) return false;
+
+    // Check if the member has the Administrator permission
+    return member.permissions.has(PermissionsBitField.Flags.Administrator);
+  } catch (error) {
+    console.error('Error checking admin permissions:', error);
+    return false;
+  }
 };

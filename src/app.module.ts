@@ -14,6 +14,7 @@ import { FoodModule } from './modules/food/food.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { UploadModule } from './services/upload/upload.module';
+import { BankModule } from './modules/bank/bank.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { UploadModule } from './services/upload/upload.module';
     PingModule,
     KissModule,
     FoodModule,
+    BankModule,
   ],
   providers: [AppService],
 })
